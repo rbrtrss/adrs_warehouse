@@ -41,10 +41,8 @@ Thumbs.db
 # -------------------------------------------------
 # Data 
 # -------------------------------------------------
-data/bronze/
-data/silver/
-data/gold/
-data/warehouse/
+data/raw
+data/processed
 *.parquet
 *.duckdb
 
