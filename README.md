@@ -18,11 +18,13 @@ We're building a data warehouse model for the following US-listed argentine ADRs
   
 Raw data is pulled from `yfinance` python package that wraps Yahoo Finance public available API. The resulting multilevel pandas dataframe is indexed by the date, in level 0 are the tickers and in level 1 the stock prices. The table is cleaned of missing values, and flattened to a long format. This flat DataFrame is persisted into a `duckdb` database.
 
+![Pipeline](assets/pipeline.png)
+
 ## TODO
-- Implement a star or snowflake schema for the database
-- Implement a function to update the values in future times
-- Automate the uptates in fixed intervals
-- Implement a function to include a new ticker
+- [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
+- [ ] Implement incremental data updates (fetch only new data since last load)
+- [ ] Automate daily updates with a scheduler (cron, Prefect, or Airflow)
+- [ ] Add function to include new tickers dynamically
 
 ## Possible Problems
 - Yahoo Finance restricts the accesss to the python package, then the data shouod need to be accessed directly from the api
