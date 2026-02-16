@@ -33,7 +33,8 @@ Raw data is pulled from `yfinance` python package that wraps Yahoo Finance publi
 ## Installation
 
 ```bash
-pip install -e .
+uv sync              # install core dependencies
+uv sync --extra dev  # include jupyter and dev tools
 ```
 
 ## Usage
