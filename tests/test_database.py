@@ -1,5 +1,8 @@
+import datetime
 import pandas as pd
+from unittest.mock import patch
 
+from adrs_warehouse.data.fetch import update_warehouse
 from adrs_warehouse.data.transform import (
     build_date_dimension,
     build_fact_table,
@@ -97,3 +100,112 @@ class TestCreateTableFromDataframe:
         assert len(result) == 3
         assert list(result["x"]) == [1, 2, 3]
         assert list(result["y"]) == ["a", "b", "c"]
+
+
+class TestGetLastLoadedDate:
+    def test_returns_none_when_empty(self, db):
+        assert db.get_last_loaded_date() is None
+
+    def test_returns_max_date(self, db, sample_multiindex_df):
+        dim_date = build_date_dimension(sample_multiindex_df)
+        db.load_dimension(dim_date, "dim_date")
+
+        result = db.get_last_loaded_date()
+        assert result == datetime.date(2024, 1, 4)
+
+
+class TestAppendDimension:
+    def test_inserts_new_rows(self, db, sample_multiindex_df):
+        dim_date = build_date_dimension(sample_multiindex_df)
+        count = db.append_dimension(dim_date, "dim_date")
+        assert count == 3
+
+    def test_skips_existing_rows(self, db, sample_multiindex_df):
+        dim_date = build_date_dimension(sample_multiindex_df)
+        db.append_dimension(dim_date, "dim_date")
+
+        count = db.append_dimension(dim_date, "dim_date")
+        assert count == 0
+
+    def test_appends_only_new_rows(
+        self, db, sample_multiindex_df, extended_multiindex_df
+    ):
+        initial = build_date_dimension(sample_multiindex_df)
+        db.append_dimension(initial, "dim_date")
+
+        incremental = build_date_dimension(extended_multiindex_df)
+        count = db.append_dimension(incremental, "dim_date")
+        assert count == 1  # only Jan 5 is new
+
+        total = db.query("SELECT COUNT(*) AS n FROM dim_date").iloc[0]["n"]
+        assert total == 4
+
+
+class TestAppendFact:
+    def test_inserts_new_rows(self, db, sample_multiindex_df):
+        dim_date = build_date_dimension(sample_multiindex_df)
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
+
+        db.load_dimension(dim_date, "dim_date")
+        db.load_dimension(dim_ticker, "dim_ticker")
+        count = db.append_fact(fact)
+        assert count == 6
+
+    def test_skips_existing_rows(self, db, sample_multiindex_df):
+        dim_date = build_date_dimension(sample_multiindex_df)
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
+
+        db.load_dimension(dim_date, "dim_date")
+        db.load_dimension(dim_ticker, "dim_ticker")
+        db.append_fact(fact)
+
+        count = db.append_fact(fact)
+        assert count == 0
+
+    def test_appends_only_new_rows(
+        self, db, sample_multiindex_df, extended_multiindex_df
+    ):
+        # Initial load (Jan 2-4, 2 tickers = 6 rows)
+        dim_date = build_date_dimension(sample_multiindex_df)
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
+        db.load_dimension(dim_date, "dim_date")
+        db.load_dimension(dim_ticker, "dim_ticker")
+        db.append_fact(fact)
+
+        # Incremental (Jan 4-5): append new date dim first, then facts
+        inc_date = build_date_dimension(extended_multiindex_df)
+        inc_ticker = build_ticker_dimension(extended_multiindex_df)
+        inc_fact = build_fact_table(extended_multiindex_df, inc_date, inc_ticker)
+        db.append_dimension(inc_date, "dim_date")
+
+        count = db.append_fact(inc_fact)
+        assert count == 2  # only Jan 5 x 2 tickers
+
+        total = db.query(
+            "SELECT COUNT(*) AS n FROM fact_stock_prices"
+        ).iloc[0]["n"]
+        assert total == 8
+
+
+class TestUpdateWarehouse:
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_full_then_incremental(
+        self, mock_download, sample_multiindex_df, tmp_path
+    ):
+        mock_download.return_value = sample_multiindex_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        # First call — full load
+        result1 = update_warehouse(db_path=db_path)
+        assert result1["dim_date"] == 3
+        assert result1["dim_ticker"] == 2
+        assert result1["fact_stock_prices"] == 6
+
+        # Second call — same data, should add 0
+        result2 = update_warehouse(db_path=db_path)
+        assert result2["dim_date"] == 0
+        assert result2["dim_ticker"] == 0
+        assert result2["fact_stock_prices"] == 0
