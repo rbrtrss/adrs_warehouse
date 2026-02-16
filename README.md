@@ -37,6 +37,12 @@ uv sync              # install core dependencies
 uv sync --extra dev  # include jupyter and dev tools
 ```
 
+## Tests
+
+```bash
+uv run pytest -v
+```
+
 ## Usage
 
 ```python
