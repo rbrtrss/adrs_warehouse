@@ -1,0 +1,41 @@
+erDiagram
+    dim_date {
+        INTEGER date_id PK
+        DATE date
+        INTEGER year
+        INTEGER quarter
+        INTEGER month
+        VARCHAR month_name
+        INTEGER day
+        INTEGER day_of_week
+        VARCHAR day_name
+        INTEGER week_of_year
+        BOOLEAN is_weekend
+        BOOLEAN is_month_start
+        BOOLEAN is_month_end
+    }
+
+    dim_ticker {
+        INTEGER ticker_id PK
+        VARCHAR ticker_symbol UK
+        VARCHAR company_name
+        VARCHAR exchange
+        VARCHAR sector
+        VARCHAR country
+        DATE first_trade_date
+        DATE last_trade_date
+    }
+
+    fact_stock_prices {
+        INTEGER date_id FK
+        INTEGER ticker_id FK
+        DOUBLE open_price
+        DOUBLE high_price
+        DOUBLE low_price
+        DOUBLE close_price
+        DOUBLE adj_close_price
+        BIGINT volume
+    }
+
+    dim_date ||--o{ fact_stock_prices : "date_id"
+    dim_ticker ||--o{ fact_stock_prices : "ticker_id"

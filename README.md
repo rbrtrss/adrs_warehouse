@@ -20,6 +20,117 @@ Raw data is pulled from `yfinance` python package that wraps Yahoo Finance publi
 
 ![Pipeline](assets/pipeline.png)
 
+## Workflow
+
+The `update_warehouse` function orchestrates the full ETL pipeline: fetch from Yahoo Finance, build star-schema dimensions and fact table, and load incrementally into DuckDB.
+
+```mermaid
+flowchart TD
+    Start([update_warehouse]) --> InitDB[Create ADRDatabase\nConnect to DuckDB]
+    InitDB --> Schema[create_star_schema\nDDL for dims + fact]
+    Schema --> CheckDate[get_last_loaded_date\nQuery MAX date from dim_date]
+
+    CheckDate --> HasData{Last date\nexists?}
+    HasData -->|No| FullLoad[Full Load\nstart = 2018-01-01]
+    HasData -->|Yes| IncrLoad[Incremental Load\nstart = last_date]
+
+    FullLoad --> Fetch
+    IncrLoad --> Fetch
+
+    Fetch[download_adr_data\nyfinance API call]
+
+    subgraph Transform
+        direction TB
+        T1[build_date_dimension\nExtract year, quarter, month,\nday_of_week, is_weekend, etc.]
+        T2[build_ticker_dimension\nEnrich with company name,\nexchange, sector, country]
+        T3[build_fact_table\nNormalize to long format,\nmap FK date_id + ticker_id]
+    end
+
+    Fetch --> T1
+    Fetch --> T2
+    T1 --> T3
+    T2 --> T3
+
+    subgraph Load
+        direction TB
+        L1[append_dimension\ndim_date\nINSERT OR IGNORE]
+        L2[append_dimension\ndim_ticker\nINSERT OR IGNORE]
+        L3[append_fact\nfact_stock_prices\nINSERT OR IGNORE]
+        L4[update_ticker_dimension\nRefresh last_trade_date]
+    end
+
+    T3 --> L1
+    T3 --> L2
+    L1 --> L3
+    L2 --> L3
+    L3 --> L4
+
+    L4 --> Summary[Return row counts\ndim_date, dim_ticker,\nfact_stock_prices]
+    Summary --> Close([Close connection])
+
+    classDef startEnd fill:#E6E6FA,stroke:#333,stroke-width:2px,color:darkblue
+    classDef process fill:#90EE90,stroke:#333,stroke-width:2px,color:darkgreen
+    classDef decision fill:#FFD700,stroke:#333,stroke-width:2px,color:black
+    classDef extract fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
+    classDef transform fill:#FFDAB9,stroke:#333,stroke-width:2px,color:black
+    classDef load fill:#DDA0DD,stroke:#333,stroke-width:2px,color:black
+
+    class Start,Close startEnd
+    class InitDB,Schema,CheckDate,Summary process
+    class HasData decision
+    class FullLoad,IncrLoad,Fetch extract
+    class T1,T2,T3 transform
+    class L1,L2,L3,L4 load
+```
+
+## Database Schema
+
+Star schema with two dimensions (`dim_date`, `dim_ticker`) and one fact table (`fact_stock_prices`). The composite primary key `(date_id, ticker_id)` in the fact table enforces one row per ticker per trading day.
+
+```mermaid
+erDiagram
+    dim_date {
+        INTEGER date_id PK
+        DATE date
+        INTEGER year
+        INTEGER quarter
+        INTEGER month
+        VARCHAR month_name
+        INTEGER day
+        INTEGER day_of_week
+        VARCHAR day_name
+        INTEGER week_of_year
+        BOOLEAN is_weekend
+        BOOLEAN is_month_start
+        BOOLEAN is_month_end
+    }
+
+    dim_ticker {
+        INTEGER ticker_id PK
+        VARCHAR ticker_symbol UK
+        VARCHAR company_name
+        VARCHAR exchange
+        VARCHAR sector
+        VARCHAR country
+        DATE first_trade_date
+        DATE last_trade_date
+    }
+
+    fact_stock_prices {
+        INTEGER date_id FK
+        INTEGER ticker_id FK
+        DOUBLE open_price
+        DOUBLE high_price
+        DOUBLE low_price
+        DOUBLE close_price
+        DOUBLE adj_close_price
+        BIGINT volume
+    }
+
+    dim_date ||--o{ fact_stock_prices : "date_id"
+    dim_ticker ||--o{ fact_stock_prices : "ticker_id"
+```
+
 ## TODO
 - [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
 - [x] Implement incremental data updates (fetch only new data since last load)
