@@ -1,6 +1,6 @@
 # adrs_warehouse
 
-![CI](https://github.com/roberto/adrs_warehouse/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/rbrtrss/adrs_warehouse/actions/workflows/ci.yml/badge.svg)
 
 We're building a data warehouse model for the following US-listed argentine ADRs (American Depositary Receipt):
 
