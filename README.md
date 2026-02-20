@@ -1,5 +1,7 @@
 # adrs_warehouse
 
+![CI](https://github.com/roberto/adrs_warehouse/actions/workflows/ci.yml/badge.svg)
+
 We're building a data warehouse model for the following US-listed argentine ADRs (American Depositary Receipt):
 
 - "YPF",    # YPF S.A. (NYSE)
@@ -185,13 +187,13 @@ update_warehouse(db=db)
 - [ ] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
 
 ### Code quality
-- [ ] Replace `print()` calls with structured `logging` (log levels, file output)
+- [x] Replace `print()` calls with structured `logging` (log levels, file output)
 - [ ] Add error handling around API calls and database operations
 - [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
 - [ ] Remove unused imports (`pathlib.Path` in `fetch.py`)
 
 ### Testing & CI
-- [ ] Add GitHub Actions workflow to run pytest on every push
+- [x] Add GitHub Actions workflow to run pytest on every push
 - [ ] Add `pytest --cov` and enforce ≥ 80% coverage
 - [ ] Add edge-case tests: empty API response, overlapping date ranges, sparse ticker data
 
