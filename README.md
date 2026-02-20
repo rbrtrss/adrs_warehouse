@@ -117,8 +117,8 @@ erDiagram
     }
 
     fact_stock_prices {
-        INTEGER date_id FK
-        INTEGER ticker_id FK
+        INTEGER date_id PK,FK
+        INTEGER ticker_id PK,FK
         DOUBLE open_price
         DOUBLE high_price
         DOUBLE low_price
