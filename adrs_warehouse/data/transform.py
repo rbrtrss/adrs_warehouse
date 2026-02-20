@@ -1,6 +1,10 @@
+import logging
+
 import pandas as pd
 
 from ..config import TICKER_METADATA
+
+logger = logging.getLogger(__name__)
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
@@ -13,7 +17,11 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Cleaned DataFrame.
     """
-    return df.T.dropna(how="all").T
+    before = len(df.columns)
+    result = df.T.dropna(how="all").T
+    after = len(result.columns)
+    logger.info("Cleaned columns: %d → %d (removed %d)", before, after, before - after)
+    return result
 
 
 def normalize_prices_long(df: pd.DataFrame) -> pd.DataFrame:
@@ -38,6 +46,7 @@ def normalize_prices_long(df: pd.DataFrame) -> pd.DataFrame:
     # Standardize column names
     out.columns = [c.lower().replace(" ", "_") for c in out.columns]
 
+    logger.debug("Normalized to long format: %d rows", len(out))
     return out
 
 
@@ -67,7 +76,14 @@ def build_date_dimension(df: pd.DataFrame) -> pd.DataFrame:
     dates["is_month_start"] = dates["date"].dt.is_month_start
     dates["is_month_end"] = dates["date"].dt.is_month_end
 
-    return dates.sort_values("date_id").reset_index(drop=True)
+    result = dates.sort_values("date_id").reset_index(drop=True)
+    logger.info(
+        "Date dimension: %d dates from %s to %s",
+        len(result),
+        result["date"].min().date(),
+        result["date"].max().date(),
+    )
+    return result
 
 
 def build_ticker_dimension(
@@ -109,7 +125,15 @@ def build_ticker_dimension(
             }
         )
 
-    return pd.DataFrame(rows)
+    result = pd.DataFrame(rows)
+    with_data = result[result["first_trade_date"].notna()]
+    logger.info(
+        "Ticker dimension: %d tickers (%d with data, %d without)",
+        len(result),
+        len(with_data),
+        len(result) - len(with_data),
+    )
+    return result
 
 
 def build_fact_table(
@@ -168,4 +192,5 @@ def build_fact_table(
 
     result = fact_df[fact_columns].dropna(subset=["date_id", "ticker_id"])
     result["volume"] = result["volume"].astype("Int64")
+    logger.info("Fact table: %d rows", len(result))
     return result

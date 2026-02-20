@@ -1,10 +1,13 @@
 import datetime
+import logging
 from typing import Optional
 
 import pandas as pd
 
 from .base import DatabaseBackend
 from .schema import ALL_DDL
+
+logger = logging.getLogger(__name__)
 
 
 class DuckDBDatabase(DatabaseBackend):
@@ -20,6 +23,7 @@ class DuckDBDatabase(DatabaseBackend):
         import duckdb
 
         self.conn = duckdb.connect(db_path)
+        logger.info("Connected to database: %s", db_path)
 
     def create_table_from_dataframe(self, df: pd.DataFrame, table_name: str) -> None:
         """
@@ -47,6 +51,7 @@ class DuckDBDatabase(DatabaseBackend):
         """Create the star schema tables (dimensions and fact)."""
         for ddl in ALL_DDL:
             self.conn.execute(ddl)
+        logger.info("Star schema created/verified")
 
     def load_dimension(self, df: pd.DataFrame, table_name: str) -> int:
         """
@@ -69,6 +74,7 @@ class DuckDBDatabase(DatabaseBackend):
         self.conn.execute(f"DELETE FROM {table_name}")
         self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM df_ordered")
         result = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+        logger.info("Loaded %d rows into %s", result[0], table_name)
         return result[0]
 
     def load_fact(self, df: pd.DataFrame) -> int:
@@ -84,6 +90,7 @@ class DuckDBDatabase(DatabaseBackend):
         self.conn.execute("DELETE FROM fact_stock_prices")
         self.conn.execute("INSERT INTO fact_stock_prices SELECT * FROM df")
         result = self.conn.execute("SELECT COUNT(*) FROM fact_stock_prices").fetchone()
+        logger.info("Loaded %d rows into fact_stock_prices", result[0])
         return result[0]
 
     def get_schema_info(self) -> dict[str, list[dict]]:
@@ -118,7 +125,9 @@ class DuckDBDatabase(DatabaseBackend):
             The latest date, or None if dim_date is empty.
         """
         result = self.conn.execute("SELECT MAX(date) FROM dim_date").fetchone()
-        return result[0] if result[0] is not None else None
+        last_date = result[0] if result[0] is not None else None
+        logger.debug("Last loaded date: %s", last_date)
+        return last_date
 
     def append_dimension(self, df: pd.DataFrame, table_name: str) -> int:
         """
@@ -140,7 +149,11 @@ class DuckDBDatabase(DatabaseBackend):
             f"INSERT OR IGNORE INTO {table_name} SELECT * FROM df_ordered"
         )
         after = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
-        return after - before
+        new_rows = after - before
+        logger.info(
+            "Appended %d new rows to %s (total: %d)", new_rows, table_name, after
+        )
+        return new_rows
 
     def append_fact(self, df: pd.DataFrame) -> int:
         """
@@ -159,7 +172,11 @@ class DuckDBDatabase(DatabaseBackend):
         after = self.conn.execute("SELECT COUNT(*) FROM fact_stock_prices").fetchone()[
             0
         ]
-        return after - before
+        new_rows = after - before
+        logger.info(
+            "Appended %d new rows to fact_stock_prices (total: %d)", new_rows, after
+        )
+        return new_rows
 
     def update_ticker_dimension(self, df: pd.DataFrame) -> None:
         """
@@ -178,10 +195,12 @@ class DuckDBDatabase(DatabaseBackend):
                 OR new_data.last_trade_date > dim_ticker.last_trade_date
             )
         """)
+        logger.debug("Ticker dimension updated with latest trade dates")
 
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()
+        logger.info("Database connection closed")
 
 
 # Backward-compatibility alias
@@ -199,6 +218,7 @@ def create_database(provider: str = "duckdb", **kwargs) -> DatabaseBackend:
     Returns:
         A DatabaseBackend instance.
     """
+    logger.info("Creating database backend: %s", provider)
     if provider == "duckdb":
         return DuckDBDatabase(**kwargs)
     raise ValueError(f"Unknown database provider: {provider!r}")

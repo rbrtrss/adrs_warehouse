@@ -7,6 +7,7 @@ import yfinance as yf
 from ..config import AR_ADRS, START_DATE
 from ..database.base import DatabaseBackend
 from ..database.operations import create_database
+from ..utils.logging import setup_logging
 from . import transform
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,8 @@ def update_warehouse(
     Returns:
         Dictionary with the number of rows added per table.
     """
+    setup_logging()
+
     if db is None:
         db = create_database("duckdb", db_path=db_path)
     db.create_star_schema()
