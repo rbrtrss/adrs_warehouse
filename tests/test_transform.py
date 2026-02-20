@@ -39,7 +39,16 @@ class TestCleanData:
 class TestNormalizePricesLong:
     def test_output_columns(self, sample_multiindex_df):
         result = normalize_prices_long(sample_multiindex_df)
-        expected_cols = {"date", "ticker", "open", "high", "low", "close", "adj_close", "volume"}
+        expected_cols = {
+            "date",
+            "ticker",
+            "open",
+            "high",
+            "low",
+            "close",
+            "adj_close",
+            "volume",
+        }
         assert set(result.columns) == expected_cols
 
     def test_correct_row_count(self, sample_multiindex_df):
@@ -67,7 +76,7 @@ class TestBuildDateDimension:
         assert row["day"] == 2
         assert row["day_of_week"] == 1  # Tuesday
         assert row["day_name"] == "Tuesday"
-        assert row["is_weekend"] is False or row["is_weekend"] == False
+        assert row["is_weekend"] is False or not row["is_weekend"]
 
     def test_correct_number_of_rows(self, sample_multiindex_df):
         result = build_date_dimension(sample_multiindex_df)

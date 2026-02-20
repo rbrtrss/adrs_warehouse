@@ -1,5 +1,4 @@
 import pandas as pd
-from typing import Dict
 
 from ..config import TICKER_METADATA
 
@@ -14,7 +13,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         Cleaned DataFrame.
     """
-    return df.T.dropna(how='all').T
+    return df.T.dropna(how="all").T
 
 
 def normalize_prices_long(df: pd.DataFrame) -> pd.DataFrame:
@@ -72,8 +71,7 @@ def build_date_dimension(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_ticker_dimension(
-    df: pd.DataFrame,
-    metadata: Dict[str, Dict] = None
+    df: pd.DataFrame, metadata: dict[str, dict] = None
 ) -> pd.DataFrame:
     """
     Build a ticker dimension table with metadata.
@@ -98,24 +96,24 @@ def build_ticker_dimension(
         last_date = valid_dates.max() if len(valid_dates) > 0 else None
 
         meta = metadata.get(ticker, {})
-        rows.append({
-            "ticker_id": i,
-            "ticker_symbol": ticker,
-            "company_name": meta.get("company_name", ticker),
-            "exchange": meta.get("exchange", "Unknown"),
-            "sector": meta.get("sector", "Unknown"),
-            "country": meta.get("country", "Unknown"),
-            "first_trade_date": first_date,
-            "last_trade_date": last_date,
-        })
+        rows.append(
+            {
+                "ticker_id": i,
+                "ticker_symbol": ticker,
+                "company_name": meta.get("company_name", ticker),
+                "exchange": meta.get("exchange", "Unknown"),
+                "sector": meta.get("sector", "Unknown"),
+                "country": meta.get("country", "Unknown"),
+                "first_trade_date": first_date,
+                "last_trade_date": last_date,
+            }
+        )
 
     return pd.DataFrame(rows)
 
 
 def build_fact_table(
-    df: pd.DataFrame,
-    dim_date: pd.DataFrame,
-    dim_ticker: pd.DataFrame
+    df: pd.DataFrame, dim_date: pd.DataFrame, dim_ticker: pd.DataFrame
 ) -> pd.DataFrame:
     """
     Build the fact table with foreign keys to dimensions.
@@ -142,13 +140,15 @@ def build_fact_table(
     long_df["ticker_id"] = long_df["ticker"].map(ticker_lookup)
 
     # Rename columns to match fact table schema
-    fact_df = long_df.rename(columns={
-        "open": "open_price",
-        "high": "high_price",
-        "low": "low_price",
-        "close": "close_price",
-        "adj_close": "adj_close_price",
-    })
+    fact_df = long_df.rename(
+        columns={
+            "open": "open_price",
+            "high": "high_price",
+            "low": "low_price",
+            "close": "close_price",
+            "adj_close": "adj_close_price",
+        }
+    )
 
     # Add adj_close_price column if not present (use close_price as fallback)
     if "adj_close_price" not in fact_df.columns:
@@ -156,8 +156,14 @@ def build_fact_table(
 
     # Select and order columns for fact table
     fact_columns = [
-        "date_id", "ticker_id", "open_price", "high_price",
-        "low_price", "close_price", "adj_close_price", "volume"
+        "date_id",
+        "ticker_id",
+        "open_price",
+        "high_price",
+        "low_price",
+        "close_price",
+        "adj_close_price",
+        "volume",
     ]
 
     result = fact_df[fact_columns].dropna(subset=["date_id", "ticker_id"])

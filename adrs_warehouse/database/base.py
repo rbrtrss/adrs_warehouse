@@ -1,6 +1,6 @@
 import datetime
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
 
@@ -37,7 +37,7 @@ class DatabaseBackend(ABC):
         """Execute a SQL query and return results as DataFrame."""
 
     @abstractmethod
-    def get_schema_info(self) -> Dict[str, List[Dict]]:
+    def get_schema_info(self) -> dict[str, list[dict]]:
         """Get information about the star schema tables."""
 
     @abstractmethod

@@ -1,6 +1,7 @@
 import datetime
-import pandas as pd
 from unittest.mock import patch
+
+import pandas as pd
 
 from adrs_warehouse.data.fetch import update_warehouse
 from adrs_warehouse.data.transform import (
@@ -184,17 +185,13 @@ class TestAppendFact:
         count = db.append_fact(inc_fact)
         assert count == 2  # only Jan 5 x 2 tickers
 
-        total = db.query(
-            "SELECT COUNT(*) AS n FROM fact_stock_prices"
-        ).iloc[0]["n"]
+        total = db.query("SELECT COUNT(*) AS n FROM fact_stock_prices").iloc[0]["n"]
         assert total == 8
 
 
 class TestUpdateWarehouse:
     @patch("adrs_warehouse.data.fetch.download_adr_data")
-    def test_full_then_incremental(
-        self, mock_download, sample_multiindex_df, tmp_path
-    ):
+    def test_full_then_incremental(self, mock_download, sample_multiindex_df, tmp_path):
         mock_download.return_value = sample_multiindex_df
         db_path = str(tmp_path / "test.duckdb")
 

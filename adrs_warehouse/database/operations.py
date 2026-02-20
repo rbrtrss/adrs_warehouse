@@ -1,7 +1,7 @@
 import datetime
+from typing import Optional
+
 import pandas as pd
-from pathlib import Path
-from typing import Dict, List, Optional
 
 from .base import DatabaseBackend
 from .schema import ALL_DDL
@@ -18,13 +18,10 @@ class DuckDBDatabase(DatabaseBackend):
             db_path: Path to database file. Use ':memory:' for in-memory DB.
         """
         import duckdb
+
         self.conn = duckdb.connect(db_path)
 
-    def create_table_from_dataframe(
-        self,
-        df: pd.DataFrame,
-        table_name: str
-    ) -> None:
+    def create_table_from_dataframe(self, df: pd.DataFrame, table_name: str) -> None:
         """
         Create a table from a pandas DataFrame.
 
@@ -67,7 +64,7 @@ class DuckDBDatabase(DatabaseBackend):
         columns = schema["column_name"].tolist()
 
         # Reorder DataFrame columns to match table schema
-        df_ordered = df[columns].copy()
+        df_ordered = df[columns].copy()  # noqa: F841 — used by DuckDB SQL
 
         self.conn.execute(f"DELETE FROM {table_name}")
         self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM df_ordered")
@@ -89,7 +86,7 @@ class DuckDBDatabase(DatabaseBackend):
         result = self.conn.execute("SELECT COUNT(*) FROM fact_stock_prices").fetchone()
         return result[0]
 
-    def get_schema_info(self) -> Dict[str, List[Dict]]:
+    def get_schema_info(self) -> dict[str, list[dict]]:
         """
         Get information about the star schema tables.
 
@@ -97,21 +94,17 @@ class DuckDBDatabase(DatabaseBackend):
             Dictionary with table names and their column info.
         """
         import duckdb
+
         tables = ["dim_date", "dim_ticker", "fact_stock_prices"]
         info = {}
 
         for table in tables:
             try:
-                columns = self.conn.execute(
-                    f"DESCRIBE {table}"
-                ).df().to_dict("records")
+                columns = self.conn.execute(f"DESCRIBE {table}").df().to_dict("records")
                 row_count = self.conn.execute(
                     f"SELECT COUNT(*) FROM {table}"
                 ).fetchone()[0]
-                info[table] = {
-                    "columns": columns,
-                    "row_count": row_count
-                }
+                info[table] = {"columns": columns, "row_count": row_count}
             except duckdb.CatalogException:
                 info[table] = None
 
@@ -140,7 +133,7 @@ class DuckDBDatabase(DatabaseBackend):
         """
         schema = self.conn.execute(f"DESCRIBE {table_name}").df()
         columns = schema["column_name"].tolist()
-        df_ordered = df[columns].copy()
+        df_ordered = df[columns].copy()  # noqa: F841 — used by DuckDB SQL
 
         before = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
         self.conn.execute(
@@ -159,15 +152,13 @@ class DuckDBDatabase(DatabaseBackend):
         Returns:
             Number of new rows inserted.
         """
-        before = self.conn.execute(
-            "SELECT COUNT(*) FROM fact_stock_prices"
-        ).fetchone()[0]
-        self.conn.execute(
-            "INSERT OR IGNORE INTO fact_stock_prices SELECT * FROM df"
-        )
-        after = self.conn.execute(
-            "SELECT COUNT(*) FROM fact_stock_prices"
-        ).fetchone()[0]
+        before = self.conn.execute("SELECT COUNT(*) FROM fact_stock_prices").fetchone()[
+            0
+        ]
+        self.conn.execute("INSERT OR IGNORE INTO fact_stock_prices SELECT * FROM df")
+        after = self.conn.execute("SELECT COUNT(*) FROM fact_stock_prices").fetchone()[
+            0
+        ]
         return after - before
 
     def update_ticker_dimension(self, df: pd.DataFrame) -> None:

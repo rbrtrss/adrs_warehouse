@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -57,4 +57,4 @@ class TestBuildTickerDimensionFetch:
 
         result = build_ticker_dimension(df)
         ypf_row = result[result["ticker"] == "YPF"].iloc[0]
-        assert ypf_row["has_data"] == False
+        assert not ypf_row["has_data"]

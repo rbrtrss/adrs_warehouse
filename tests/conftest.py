@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 
 from adrs_warehouse.data.transform import normalize_prices_long
-from adrs_warehouse.database.operations import DuckDBDatabase
 from adrs_warehouse.database.base import DatabaseBackend
+from adrs_warehouse.database.operations import DuckDBDatabase
 
 
 def _make_multiindex_df(dates, tickers, data):
@@ -22,11 +22,39 @@ def sample_multiindex_df():
     return _make_multiindex_df(
         dates=["2024-01-02", "2024-01-03", "2024-01-04"],
         tickers=["GGAL", "YPF"],
-        data=np.array([
-            [10.0, 11.0, 9.5, 10.5, 10.4, 1000, 20.0, 21.0, 19.0, 20.5, 20.3, 2000],
-            [10.5, 12.0, 10.0, 11.0, 10.9, 1500, 20.5, 22.0, 20.0, 21.0, 20.8, 2500],
-            [11.0, 11.5, 10.5, 11.2, 11.1, 1200, 21.0, 21.5, 20.5, 21.2, 21.0, 2200],
-        ]),
+        data=np.array(
+            [
+                [10.0, 11.0, 9.5, 10.5, 10.4, 1000, 20.0, 21.0, 19.0, 20.5, 20.3, 2000],
+                [
+                    10.5,
+                    12.0,
+                    10.0,
+                    11.0,
+                    10.9,
+                    1500,
+                    20.5,
+                    22.0,
+                    20.0,
+                    21.0,
+                    20.8,
+                    2500,
+                ],
+                [
+                    11.0,
+                    11.5,
+                    10.5,
+                    11.2,
+                    11.1,
+                    1200,
+                    21.0,
+                    21.5,
+                    20.5,
+                    21.2,
+                    21.0,
+                    2200,
+                ],
+            ]
+        ),
     )
 
 
@@ -36,10 +64,38 @@ def extended_multiindex_df():
     return _make_multiindex_df(
         dates=["2024-01-04", "2024-01-05"],
         tickers=["GGAL", "YPF"],
-        data=np.array([
-            [11.0, 11.5, 10.5, 11.2, 11.1, 1200, 21.0, 21.5, 20.5, 21.2, 21.0, 2200],
-            [11.5, 12.0, 11.0, 11.8, 11.7, 1300, 21.5, 22.5, 21.0, 22.0, 21.8, 2400],
-        ]),
+        data=np.array(
+            [
+                [
+                    11.0,
+                    11.5,
+                    10.5,
+                    11.2,
+                    11.1,
+                    1200,
+                    21.0,
+                    21.5,
+                    20.5,
+                    21.2,
+                    21.0,
+                    2200,
+                ],
+                [
+                    11.5,
+                    12.0,
+                    11.0,
+                    11.8,
+                    11.7,
+                    1300,
+                    21.5,
+                    22.5,
+                    21.0,
+                    22.0,
+                    21.8,
+                    2400,
+                ],
+            ]
+        ),
     )
 
 

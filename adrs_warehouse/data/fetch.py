@@ -1,81 +1,83 @@
 import logging
+from typing import Optional
+
 import pandas as pd
 import yfinance as yf
-from typing import Dict, List, Optional
-
-logger = logging.getLogger(__name__)
 
 from ..config import AR_ADRS, START_DATE
 from ..database.base import DatabaseBackend
 from ..database.operations import create_database
 from . import transform
 
+logger = logging.getLogger(__name__)
+
 
 def download_adr_data(
-    tickers: Optional[List[str]] = None,
+    tickers: Optional[list[str]] = None,
     start_date: Optional[str] = None,
-    group_by: str = "ticker"
+    group_by: str = "ticker",
 ) -> pd.DataFrame:
     """
     Download historical stock data for Argentine ADRs.
-    
+
     Args:
         tickers: List of ticker symbols. Defaults to AR_ADRS from config.
         start_date: Start date for data download. Defaults to START_DATE.
         group_by: How to group the data ('ticker' or 'column').
-    
+
     Returns:
         DataFrame with stock data grouped by ticker.
     """
     if tickers is None:
         tickers = AR_ADRS
-    
+
     if start_date is None:
         start_date = START_DATE
-    
+
     logger.info("Downloading data for %d tickers from %s", len(tickers), start_date)
     data = yf.download(tickers, start=start_date, group_by=group_by)
     logger.info("Download complete. Shape: %s", data.shape)
-    
+
     return data
 
 
 def build_ticker_dimension(df: pd.DataFrame) -> pd.DataFrame:
     """
     Build a dimension table with metadata for each ticker.
-    
+
     Args:
         df: DataFrame with MultiIndex columns (ticker, field).
-    
+
     Returns:
         DataFrame with ticker metadata (has_data, first_date, last_date).
     """
     tickers = df.columns.get_level_values(0).unique()
-    
+
     rows = []
     for ticker in tickers:
         sub = df[ticker]
         first_date = sub.dropna(how="all").index.min()
         last_date = sub.dropna(how="all").index.max()
         has_data = pd.notna(first_date)
-        
-        rows.append({
-            "ticker": ticker,
-            "has_data": bool(has_data),
-            "first_date": first_date,
-            "last_date": last_date,
-        })
-    
+
+        rows.append(
+            {
+                "ticker": ticker,
+                "has_data": bool(has_data),
+                "first_date": first_date,
+                "last_date": last_date,
+            }
+        )
+
     return pd.DataFrame(rows).sort_values(
-        ["has_data", "ticker"],
-        ascending=[False, True]
+        ["has_data", "ticker"], ascending=[False, True]
     )
 
 
 def update_warehouse(
     db_path: str = "data/processed/db.duckdb",
     db: Optional[DatabaseBackend] = None,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Incrementally update the ADR data warehouse.
 
@@ -121,7 +123,9 @@ def update_warehouse(
 
     logger.info(
         "Rows added: dim_date=%d, dim_ticker=%d, fact_stock_prices=%d",
-        date_count, ticker_count, fact_count,
+        date_count,
+        ticker_count,
+        fact_count,
     )
 
     db.close()
