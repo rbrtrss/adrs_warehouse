@@ -131,6 +131,48 @@ erDiagram
     dim_ticker ||--o{ fact_stock_prices : "ticker_id"
 ```
 
+## Adding a New Database Provider
+
+The database layer uses an abstract `DatabaseBackend` interface, so alternative backends (MotherDuck, SQLite, Postgres, etc.) can be swapped in without changing any other code.
+
+### Steps
+
+1. **Create the backend class** in `adrs_warehouse/database/<provider>.py`, inheriting from `DatabaseBackend` and implementing all abstract methods:
+
+```python
+# adrs_warehouse/database/motherduck.py
+from .base import DatabaseBackend
+
+class MotherDuckDatabase(DatabaseBackend):
+    def __init__(self, connection_string: str):
+        import duckdb
+        self.conn = duckdb.connect(connection_string)
+
+    # implement all abstract methods ...
+```
+
+2. **Register it** in the `create_database` factory in `adrs_warehouse/database/operations.py`:
+
+```python
+def create_database(provider: str = "duckdb", **kwargs) -> DatabaseBackend:
+    if provider == "duckdb":
+        return DuckDBDatabase(**kwargs)
+    if provider == "motherduck":
+        from .motherduck import MotherDuckDatabase
+        return MotherDuckDatabase(**kwargs)
+    raise ValueError(f"Unknown database provider: {provider!r}")
+```
+
+3. **Use it** by passing a backend instance to `update_warehouse`:
+
+```python
+from adrs_warehouse.database import create_database
+from adrs_warehouse.data.fetch import update_warehouse
+
+db = create_database("motherduck", connection_string="md:my_db")
+update_warehouse(db=db)
+```
+
 ## TODO
 - [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
 - [x] Implement incremental data updates (fetch only new data since last load)

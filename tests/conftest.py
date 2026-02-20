@@ -3,7 +3,8 @@ import pandas as pd
 import pytest
 
 from adrs_warehouse.data.transform import normalize_prices_long
-from adrs_warehouse.database.operations import ADRDatabase
+from adrs_warehouse.database.operations import DuckDBDatabase
+from adrs_warehouse.database.base import DatabaseBackend
 
 
 def _make_multiindex_df(dates, tickers, data):
@@ -49,9 +50,9 @@ def sample_long_df(sample_multiindex_df):
 
 
 @pytest.fixture
-def db():
-    """An in-memory ADRDatabase with star schema created."""
-    database = ADRDatabase(":memory:")
+def db() -> DatabaseBackend:
+    """An in-memory DuckDBDatabase with star schema created."""
+    database = DuckDBDatabase(":memory:")
     database.create_star_schema()
     yield database
     database.close()

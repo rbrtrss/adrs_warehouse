@@ -1,14 +1,14 @@
 import datetime
-import duckdb
 import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .base import DatabaseBackend
 from .schema import ALL_DDL
 
 
-class ADRDatabase:
-    """Handle database operations for ADR data."""
+class DuckDBDatabase(DatabaseBackend):
+    """Handle database operations for ADR data using DuckDB."""
 
     def __init__(self, db_path: str = ":memory:"):
         """
@@ -17,6 +17,7 @@ class ADRDatabase:
         Args:
             db_path: Path to database file. Use ':memory:' for in-memory DB.
         """
+        import duckdb
         self.conn = duckdb.connect(db_path)
 
     def create_table_from_dataframe(
@@ -95,6 +96,7 @@ class ADRDatabase:
         Returns:
             Dictionary with table names and their column info.
         """
+        import duckdb
         tables = ["dim_date", "dim_ticker", "fact_stock_prices"]
         info = {}
 
@@ -189,3 +191,23 @@ class ADRDatabase:
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()
+
+
+# Backward-compatibility alias
+ADRDatabase = DuckDBDatabase
+
+
+def create_database(provider: str = "duckdb", **kwargs) -> DatabaseBackend:
+    """
+    Factory function to create a database backend.
+
+    Args:
+        provider: Database provider name. Currently supports 'duckdb'.
+        **kwargs: Provider-specific arguments (e.g., db_path for duckdb).
+
+    Returns:
+        A DatabaseBackend instance.
+    """
+    if provider == "duckdb":
+        return DuckDBDatabase(**kwargs)
+    raise ValueError(f"Unknown database provider: {provider!r}")

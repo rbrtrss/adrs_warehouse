@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from ..config import AR_ADRS, START_DATE
-from ..database.operations import ADRDatabase
+from ..database.base import DatabaseBackend
+from ..database.operations import create_database
 from . import transform
 
 
@@ -69,7 +70,10 @@ def build_ticker_dimension(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def update_warehouse(db_path: str = "data/processed/db.duckdb") -> Dict[str, int]:
+def update_warehouse(
+    db_path: str = "data/processed/db.duckdb",
+    db: Optional[DatabaseBackend] = None,
+) -> Dict[str, int]:
     """
     Incrementally update the ADR data warehouse.
 
@@ -78,11 +82,13 @@ def update_warehouse(db_path: str = "data/processed/db.duckdb") -> Dict[str, int
 
     Args:
         db_path: Path to the DuckDB database file.
+        db: Optional database backend instance. If None, a DuckDB backend is created.
 
     Returns:
         Dictionary with the number of rows added per table.
     """
-    db = ADRDatabase(db_path)
+    if db is None:
+        db = create_database("duckdb", db_path=db_path)
     db.create_star_schema()
 
     last_date = db.get_last_loaded_date()
