@@ -174,10 +174,26 @@ update_warehouse(db=db)
 ```
 
 ## TODO
+
+### Data pipeline
 - [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
 - [x] Implement incremental data updates (fetch only new data since last load)
 - [ ] Automate daily updates with a scheduler (cron, Prefect, or Airflow)
 - [ ] Add function to include new tickers dynamically
+- [ ] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
+- [ ] Add retry logic with exponential backoff for yfinance API failures
+- [ ] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
+
+### Code quality
+- [ ] Replace `print()` calls with structured `logging` (log levels, file output)
+- [ ] Add error handling around API calls and database operations
+- [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
+- [ ] Remove unused imports (`pathlib.Path` in `fetch.py`)
+
+### Testing & CI
+- [ ] Add GitHub Actions workflow to run pytest on every push
+- [ ] Add `pytest --cov` and enforce ≥ 80% coverage
+- [ ] Add edge-case tests: empty API response, overlapping date ranges, sparse ticker data
 
 ## Possible Problems
 - Yahoo Finance restricts the accesss to the python package, then the data shouod need to be accessed directly from the api

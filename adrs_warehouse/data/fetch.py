@@ -1,7 +1,9 @@
+import logging
 import pandas as pd
 import yfinance as yf
-from pathlib import Path
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from ..config import AR_ADRS, START_DATE
 from ..database.base import DatabaseBackend
@@ -31,9 +33,9 @@ def download_adr_data(
     if start_date is None:
         start_date = START_DATE
     
-    print(f"Downloading data for {len(tickers)} tickers from {start_date}...")
+    logger.info("Downloading data for %d tickers from %s", len(tickers), start_date)
     data = yf.download(tickers, start=start_date, group_by=group_by)
-    print(f"Download complete. Shape: {data.shape}")
+    logger.info("Download complete. Shape: %s", data.shape)
     
     return data
 
@@ -94,11 +96,11 @@ def update_warehouse(
     last_date = db.get_last_loaded_date()
 
     if last_date is None:
-        print("No existing data found. Performing full load...")
+        logger.info("No existing data found. Performing full load")
         start = START_DATE
     else:
         start = str(last_date)
-        print(f"Last loaded date: {last_date}. Fetching from {start}...")
+        logger.info("Last loaded date: %s. Fetching from %s", last_date, start)
 
     raw = download_adr_data(start_date=start)
 
@@ -117,10 +119,9 @@ def update_warehouse(
         "fact_stock_prices": fact_count,
     }
 
-    print(
-        f"Rows added: dim_date={date_count}, "
-        f"dim_ticker={ticker_count}, "
-        f"fact_stock_prices={fact_count}"
+    logger.info(
+        "Rows added: dim_date=%d, dim_ticker=%d, fact_stock_prices=%d",
+        date_count, ticker_count, fact_count,
     )
 
     db.close()
