@@ -39,8 +39,7 @@ class TestSetupLogging:
         stream_handlers = [
             h
             for h in logger.handlers
-            if isinstance(h, logging.StreamHandler)
-            and not hasattr(h, "baseFilename")
+            if isinstance(h, logging.StreamHandler) and not hasattr(h, "baseFilename")
         ]
         assert stream_handlers[0].level == logging.WARNING
 

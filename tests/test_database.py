@@ -2,6 +2,7 @@ import datetime
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from adrs_warehouse.data.fetch import update_warehouse
 from adrs_warehouse.data.transform import (
@@ -9,8 +10,6 @@ from adrs_warehouse.data.transform import (
     build_fact_table,
     build_ticker_dimension,
 )
-import pytest
-
 from adrs_warehouse.database.operations import ADRDatabase, create_database
 
 
@@ -166,9 +165,9 @@ class TestUpdateTickerDimension:
         db.append_dimension(dim_ticker, "dim_ticker")
 
         # Try to set an older date — should not overwrite
-        original_date = db.query(
-            "SELECT last_trade_date FROM dim_ticker LIMIT 1"
-        ).iloc[0]["last_trade_date"]
+        original_date = db.query("SELECT last_trade_date FROM dim_ticker LIMIT 1").iloc[
+            0
+        ]["last_trade_date"]
 
         older = dim_ticker.copy()
         older["last_trade_date"] = datetime.date(2000, 1, 1)
