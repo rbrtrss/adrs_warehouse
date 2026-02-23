@@ -35,6 +35,10 @@ class TestCleanData:
         result = clean_data(df)
         assert ("YPF", "Open") in result.columns
 
+    def test_empty_dataframe_returns_empty(self):
+        result = clean_data(pd.DataFrame())
+        assert result.empty
+
 
 class TestNormalizePricesLong:
     def test_output_columns(self, sample_multiindex_df):
@@ -62,6 +66,10 @@ class TestNormalizePricesLong:
         for col in result.columns:
             assert col == col.lower()
             assert " " not in col
+
+    def test_empty_dataframe_returns_empty(self):
+        result = normalize_prices_long(pd.DataFrame())
+        assert result.empty
 
 
 class TestBuildDateDimension:

@@ -9,7 +9,9 @@ from adrs_warehouse.data.transform import (
     build_fact_table,
     build_ticker_dimension,
 )
-from adrs_warehouse.database.operations import ADRDatabase
+import pytest
+
+from adrs_warehouse.database.operations import ADRDatabase, create_database
 
 
 class TestCreateStarSchema:
@@ -144,6 +146,47 @@ class TestAppendFact:
 
         total = db.query("SELECT COUNT(*) AS n FROM fact_stock_prices").iloc[0]["n"]
         assert total == 8
+
+
+class TestUpdateTickerDimension:
+    def test_updates_last_trade_date(self, db, sample_multiindex_df):
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        db.append_dimension(dim_ticker, "dim_ticker")
+
+        # Build a fresh dim with a later last_trade_date
+        updated = dim_ticker.copy()
+        updated["last_trade_date"] = datetime.date(2099, 12, 31)
+        db.update_ticker_dimension(updated)
+
+        result = db.query("SELECT last_trade_date FROM dim_ticker LIMIT 1")
+        assert result.iloc[0]["last_trade_date"] == pd.Timestamp("2099-12-31")
+
+    def test_does_not_downgrade_date(self, db, sample_multiindex_df):
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        db.append_dimension(dim_ticker, "dim_ticker")
+
+        # Try to set an older date — should not overwrite
+        original_date = db.query(
+            "SELECT last_trade_date FROM dim_ticker LIMIT 1"
+        ).iloc[0]["last_trade_date"]
+
+        older = dim_ticker.copy()
+        older["last_trade_date"] = datetime.date(2000, 1, 1)
+        db.update_ticker_dimension(older)
+
+        result = db.query("SELECT last_trade_date FROM dim_ticker LIMIT 1")
+        assert result.iloc[0]["last_trade_date"] == original_date
+
+
+class TestCreateDatabase:
+    def test_returns_duckdb_instance(self):
+        db = create_database("duckdb", db_path=":memory:")
+        assert isinstance(db, ADRDatabase)
+        db.close()
+
+    def test_raises_for_unknown_provider(self):
+        with pytest.raises(ValueError, match="Unknown database provider"):
+            create_database("sqlite")
 
 
 class TestUpdateWarehouse:

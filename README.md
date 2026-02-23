@@ -195,7 +195,7 @@ update_warehouse(db=db)
 ### Testing & CI
 - [x] Add GitHub Actions workflow to run pytest on every push
 - [x] Add edge-case tests: overlapping date ranges, sparse ticker data
-- [ ] Add `pytest --cov` and enforce ≥ 80% coverage
+- [x] Add `pytest --cov` and enforce ≥ 80% coverage
 - [x] Add edge-case test: empty API response
 
 ## Possible Problems
@@ -281,6 +281,24 @@ uv run pytest -v -k transform # only transform-related tests
 uv run pytest -v -k database  # only database-related tests
 ```
 
+### Coverage
+
+Coverage is measured automatically on every test run (configured via `addopts` in `pyproject.toml`) and a summary is printed to the terminal. To get a full HTML report instead:
+
+```bash
+uv run pytest --cov-report=html   # writes htmlcov/index.html
+open htmlcov/index.html           # open in browser (macOS)
+xdg-open htmlcov/index.html       # open in browser (Linux)
+```
+
+To check coverage for a single module:
+
+```bash
+uv run pytest --cov=adrs_warehouse/data/transform.py
+```
+
+`adrs_warehouse/utils/helpers.py` is excluded from coverage (see `[tool.coverage.run]` in `pyproject.toml`).
+
 ### Test structure
 
 ```
@@ -288,7 +306,8 @@ tests/
 ├── conftest.py          # shared fixtures (sample DataFrames, in-memory DB)
 ├── test_fetch.py        # download_adr_data, build_ticker_dimension (mocked yfinance)
 ├── test_transform.py    # clean_data, normalize_prices_long, dimension & fact builders
-└── test_database.py     # star schema creation, incremental loads, update_warehouse integration
+├── test_database.py     # star schema creation, incremental loads, update_warehouse integration
+└── test_logging.py      # setup_logging: handler wiring, idempotence, log directory creation
 ```
 
 ### Key fixtures (defined in `conftest.py`)

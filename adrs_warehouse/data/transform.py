@@ -35,6 +35,9 @@ def normalize_prices_long(df: pd.DataFrame) -> pd.DataFrame:
         Long-format DataFrame with columns:
         date, ticker, open, high, low, close, volume
     """
+    if df.empty:
+        return df
+
     out = (
         df.copy()
         .rename(columns={"Adj Close": "Adj_Close"}, level=1)
