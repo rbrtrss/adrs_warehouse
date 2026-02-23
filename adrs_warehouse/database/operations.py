@@ -53,46 +53,6 @@ class DuckDBDatabase(DatabaseBackend):
             self.conn.execute(ddl)
         logger.info("Star schema created/verified")
 
-    def load_dimension(self, df: pd.DataFrame, table_name: str) -> int:
-        """
-        Load data into a dimension table.
-
-        Args:
-            df: DataFrame with dimension data.
-            table_name: Target dimension table name.
-
-        Returns:
-            Number of rows inserted.
-        """
-        # Get column order from table schema
-        schema = self.conn.execute(f"DESCRIBE {table_name}").df()
-        columns = schema["column_name"].tolist()
-
-        # Reorder DataFrame columns to match table schema
-        df_ordered = df[columns].copy()  # noqa: F841 — used by DuckDB SQL
-
-        self.conn.execute(f"DELETE FROM {table_name}")
-        self.conn.execute(f"INSERT INTO {table_name} SELECT * FROM df_ordered")
-        result = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
-        logger.info("Loaded %d rows into %s", result[0], table_name)
-        return result[0]
-
-    def load_fact(self, df: pd.DataFrame) -> int:
-        """
-        Load data into the fact table.
-
-        Args:
-            df: DataFrame with fact data.
-
-        Returns:
-            Number of rows inserted.
-        """
-        self.conn.execute("DELETE FROM fact_stock_prices")
-        self.conn.execute("INSERT INTO fact_stock_prices SELECT * FROM df")
-        result = self.conn.execute("SELECT COUNT(*) FROM fact_stock_prices").fetchone()
-        logger.info("Loaded %d rows into fact_stock_prices", result[0])
-        return result[0]
-
     def get_schema_info(self) -> dict[str, list[dict]]:
         """
         Get information about the star schema tables.

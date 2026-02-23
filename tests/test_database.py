@@ -19,53 +19,10 @@ class TestCreateStarSchema:
         assert {"dim_date", "dim_ticker", "fact_stock_prices"}.issubset(table_names)
 
 
-class TestLoadDimension:
-    def test_returns_correct_row_count(self, db, sample_multiindex_df):
-        dim_date = build_date_dimension(sample_multiindex_df)
-        count = db.load_dimension(dim_date, "dim_date")
-        assert count == 3
-
-    def test_data_is_queryable_after_load(self, db, sample_multiindex_df):
-        dim_date = build_date_dimension(sample_multiindex_df)
-        db.load_dimension(dim_date, "dim_date")
-
-        result = db.query("SELECT * FROM dim_date WHERE year = 2024")
-        assert len(result) == 3
-
-
-class TestLoadFact:
-    def test_returns_correct_row_count(self, db, sample_multiindex_df):
-        dim_date = build_date_dimension(sample_multiindex_df)
-        dim_ticker = build_ticker_dimension(sample_multiindex_df)
-        fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
-
-        db.load_dimension(dim_date, "dim_date")
-        db.load_dimension(dim_ticker, "dim_ticker")
-        count = db.load_fact(fact)
-        assert count == 6  # 3 dates x 2 tickers
-
-    def test_fk_integrity(self, db, sample_multiindex_df):
-        dim_date = build_date_dimension(sample_multiindex_df)
-        dim_ticker = build_ticker_dimension(sample_multiindex_df)
-        fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
-
-        db.load_dimension(dim_date, "dim_date")
-        db.load_dimension(dim_ticker, "dim_ticker")
-        db.load_fact(fact)
-
-        # All fact date_ids exist in dim_date
-        orphans = db.query("""
-            SELECT f.date_id FROM fact_stock_prices f
-            LEFT JOIN dim_date d ON f.date_id = d.date_id
-            WHERE d.date_id IS NULL
-        """)
-        assert len(orphans) == 0
-
-
 class TestQuery:
     def test_returns_expected_dataframe(self, db, sample_multiindex_df):
         dim_date = build_date_dimension(sample_multiindex_df)
-        db.load_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_date, "dim_date")
 
         result = db.query("SELECT date_id, year FROM dim_date ORDER BY date_id LIMIT 1")
         assert result.iloc[0]["date_id"] == 20240102
@@ -75,7 +32,7 @@ class TestQuery:
 class TestGetSchemaInfo:
     def test_returns_correct_structure(self, db, sample_multiindex_df):
         dim_date = build_date_dimension(sample_multiindex_df)
-        db.load_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_date, "dim_date")
 
         info = db.get_schema_info()
         assert "dim_date" in info
@@ -109,7 +66,7 @@ class TestGetLastLoadedDate:
 
     def test_returns_max_date(self, db, sample_multiindex_df):
         dim_date = build_date_dimension(sample_multiindex_df)
-        db.load_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_date, "dim_date")
 
         result = db.get_last_loaded_date()
         assert result == datetime.date(2024, 1, 4)
@@ -148,8 +105,8 @@ class TestAppendFact:
         dim_ticker = build_ticker_dimension(sample_multiindex_df)
         fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
 
-        db.load_dimension(dim_date, "dim_date")
-        db.load_dimension(dim_ticker, "dim_ticker")
+        db.append_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_ticker, "dim_ticker")
         count = db.append_fact(fact)
         assert count == 6
 
@@ -158,8 +115,8 @@ class TestAppendFact:
         dim_ticker = build_ticker_dimension(sample_multiindex_df)
         fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
 
-        db.load_dimension(dim_date, "dim_date")
-        db.load_dimension(dim_ticker, "dim_ticker")
+        db.append_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_ticker, "dim_ticker")
         db.append_fact(fact)
 
         count = db.append_fact(fact)
@@ -172,8 +129,8 @@ class TestAppendFact:
         dim_date = build_date_dimension(sample_multiindex_df)
         dim_ticker = build_ticker_dimension(sample_multiindex_df)
         fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
-        db.load_dimension(dim_date, "dim_date")
-        db.load_dimension(dim_ticker, "dim_ticker")
+        db.append_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_ticker, "dim_ticker")
         db.append_fact(fact)
 
         # Incremental (Jan 4-5): append new date dim first, then facts

@@ -13,14 +13,6 @@ class DatabaseBackend(ABC):
         """Create the star schema tables (dimensions and fact)."""
 
     @abstractmethod
-    def load_dimension(self, df: pd.DataFrame, table_name: str) -> int:
-        """Load data into a dimension table, returning rows inserted."""
-
-    @abstractmethod
-    def load_fact(self, df: pd.DataFrame) -> int:
-        """Load data into the fact table, returning rows inserted."""
-
-    @abstractmethod
     def append_dimension(self, df: pd.DataFrame, table_name: str) -> int:
         """Append only new rows to a dimension table, returning rows inserted."""
 
