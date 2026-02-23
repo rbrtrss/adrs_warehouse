@@ -206,3 +206,14 @@ class TestUpdateWarehouse:
         assert result2["dim_date"] == 0
         assert result2["dim_ticker"] == 0
         assert result2["fact_stock_prices"] == 0
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_empty_api_response(self, mock_download, tmp_path):
+        mock_download.return_value = pd.DataFrame()
+        db_path = str(tmp_path / "test.duckdb")
+
+        result = update_warehouse(db_path=db_path)
+
+        assert result["dim_date"] == 0
+        assert result["dim_ticker"] == 0
+        assert result["fact_stock_prices"] == 0

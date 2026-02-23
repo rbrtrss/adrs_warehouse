@@ -188,14 +188,15 @@ update_warehouse(db=db)
 
 ### Code quality
 - [x] Replace `print()` calls with structured `logging` (log levels, file output)
+- [x] Remove unused imports (`pathlib.Path` in `fetch.py`)
 - [ ] Add error handling around API calls and database operations
 - [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
-- [ ] Remove unused imports (`pathlib.Path` in `fetch.py`)
 
 ### Testing & CI
 - [x] Add GitHub Actions workflow to run pytest on every push
+- [x] Add edge-case tests: overlapping date ranges, sparse ticker data
 - [ ] Add `pytest --cov` and enforce ≥ 80% coverage
-- [ ] Add edge-case tests: empty API response, overlapping date ranges, sparse ticker data
+- [x] Add edge-case test: empty API response
 
 ## Possible Problems
 - Yahoo Finance restricts the accesss to the python package, then the data shouod need to be accessed directly from the api

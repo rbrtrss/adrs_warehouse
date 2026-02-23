@@ -109,6 +109,11 @@ def update_warehouse(
 
     raw = download_adr_data(start_date=start)
 
+    if raw.empty:
+        logger.info("No data returned from API. Skipping load.")
+        db.close()
+        return {"dim_date": 0, "dim_ticker": 0, "fact_stock_prices": 0}
+
     dim_date = transform.build_date_dimension(raw)
     dim_ticker = transform.build_ticker_dimension(raw)
     fact = transform.build_fact_table(raw, dim_date, dim_ticker)
