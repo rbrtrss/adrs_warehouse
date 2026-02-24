@@ -1,5 +1,6 @@
 import datetime
 import logging
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -22,6 +23,8 @@ class DuckDBDatabase(DatabaseBackend):
         """
         import duckdb
 
+        if db_path != ":memory:":
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = duckdb.connect(db_path)
         logger.info("Connected to database: %s", db_path)
 
