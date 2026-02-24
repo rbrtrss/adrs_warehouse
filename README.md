@@ -175,12 +175,37 @@ db = create_database("motherduck", connection_string="md:my_db")
 update_warehouse(db=db)
 ```
 
+## Automated Updates (Cron)
+
+The `adrs-warehouse` CLI command (or `python -m adrs_warehouse`) runs the incremental ETL pipeline and exits, making it easy to schedule with cron.
+
+**Run manually:**
+
+```bash
+adrs-warehouse                              # uses default db path
+adrs-warehouse --db-path /path/to/db.duckdb # custom db path
+python -m adrs_warehouse --help             # show all options
+```
+
+**Schedule with cron** — add this entry via `crontab -e` to run weekdays at 6 PM (after NYSE closes at 4 PM ET):
+
+```
+# Run weekdays at 6pm — after NYSE closes at 4pm ET
+0 18 * * 1-5 /home/roberto/adrs_warehouse/.venv/bin/adrs-warehouse >> /home/roberto/adrs_warehouse/logs/cron.log 2>&1
+```
+
+Make sure the `logs/` directory exists before enabling the cron job:
+
+```bash
+mkdir -p /home/roberto/adrs_warehouse/logs
+```
+
 ## TODO
 
 ### Data pipeline
 - [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
 - [x] Implement incremental data updates (fetch only new data since last load)
-- [ ] Automate daily updates with a scheduler (cron, Prefect, or Airflow)
+- [x] Automate daily updates with a scheduler (cron)
 - [ ] Add function to include new tickers dynamically
 - [ ] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
 - [ ] Add retry logic with exponential backoff for yfinance API failures
