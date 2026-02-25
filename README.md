@@ -177,27 +177,83 @@ update_warehouse(db=db)
 
 ## Automated Updates (Cron)
 
-The `adrs-warehouse` CLI command (or `python -m adrs_warehouse`) runs the incremental ETL pipeline and exits, making it easy to schedule with cron.
+The `adrs-warehouse` CLI (registered via `[project.scripts]` in `pyproject.toml`) runs the incremental ETL pipeline and exits with a zero status code on success, making it a natural fit for cron scheduling. The logger writes structured output to `logs/adrs_warehouse.log` automatically.
 
-**Run manually:**
+### Setting Up a Cron Job
 
-```bash
-adrs-warehouse                              # uses default db path
-adrs-warehouse --db-path /path/to/db.duckdb # custom db path
-python -m adrs_warehouse --help             # show all options
-```
+The steps below work on Linux and macOS.
 
-**Schedule with cron** — add this entry via `crontab -e` to run weekdays at 6 PM (after NYSE closes at 4 PM ET):
+**Step 1 — Find the installed command path**
 
-```
-# Run weekdays at 6pm — after NYSE closes at 4pm ET
-0 18 * * 1-5 /home/roberto/adrs_warehouse/.venv/bin/adrs-warehouse >> /home/roberto/adrs_warehouse/logs/cron.log 2>&1
-```
-
-Make sure the `logs/` directory exists before enabling the cron job:
+From the project root, print the absolute path to the binary:
 
 ```bash
-mkdir -p /home/roberto/adrs_warehouse/logs
+which adrs-warehouse          # if the venv is already activated
+# or
+echo "$(pwd)/.venv/bin/adrs-warehouse"   # always works from the project root
+```
+
+Copy the full path — you will paste it into the crontab entry.
+
+**Step 2 — Open the crontab editor**
+
+```bash
+crontab -e
+```
+
+This opens your personal crontab in `$EDITOR` (usually `vi` or `nano`).
+
+**Step 3 — Understand cron syntax**
+
+```
+# ┌─ minute  (0-59)
+# │ ┌─ hour   (0-23)
+# │ │ ┌─ day-of-month (1-31)
+# │ │ │ ┌─ month (1-12)
+# │ │ │ │ ┌─ day-of-week (0-7, 0 and 7 = Sunday)
+# │ │ │ │ │
+# * * * * *  command
+```
+
+**Step 4 — Add the cron entry**
+
+Replace `/path/to/project` with your actual project root (from Step 1):
+
+```
+# Update ADR warehouse weekdays at 6 PM — after NYSE closes at 4 PM ET
+0 18 * * 1-5 /path/to/project/.venv/bin/adrs-warehouse --db-path /path/to/project/data/processed/db.duckdb >> /path/to/project/logs/cron.log 2>&1
+```
+
+> **PATH caveat:** Cron runs with a minimal `PATH` that does not include your venv. Always use the absolute path to the binary rather than a bare `adrs-warehouse`. Alternatively, set `PATH` at the top of the crontab:
+> ```
+> PATH=/path/to/project/.venv/bin:/usr/local/bin:/usr/bin:/bin
+> ```
+
+Make sure the `logs/` directory exists before the first run:
+
+```bash
+mkdir -p /path/to/project/logs
+```
+
+**Step 5 — Verify the cron job is registered**
+
+```bash
+crontab -l
+```
+
+**Step 6 — Check the logs after the first run**
+
+The app writes structured lines to `logs/adrs_warehouse.log` (rotating at 5 MB, 3 backups). The cron redirect appends stdout/stderr to `logs/cron.log`:
+
+```bash
+tail -f /path/to/project/logs/adrs_warehouse.log
+tail -f /path/to/project/logs/cron.log
+```
+
+A successful run ends with:
+
+```
+Update complete — dim_date: 5, dim_ticker: 0, fact_stock_prices: 65
 ```
 
 ## TODO
@@ -234,7 +290,25 @@ uv sync              # install core dependencies
 uv sync --extra dev  # include jupyter and dev tools
 ```
 
+After `uv sync`, the `adrs-warehouse` CLI is available via:
+
+```bash
+uv run adrs-warehouse --help
+```
+
 ## Usage
+
+### CLI
+
+Run the incremental ETL pipeline from the command line:
+
+```bash
+uv run adrs-warehouse                                 # default db path
+uv run adrs-warehouse --db-path /path/to/db.duckdb   # custom db path
+uv run adrs-warehouse --help                          # show all options
+```
+
+### Python API
 
 ```python
 from adrs_warehouse.data.fetch import download_adr_data, build_ticker_dimension
