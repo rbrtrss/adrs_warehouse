@@ -22,6 +22,31 @@ Raw data is pulled from `yfinance` python package that wraps Yahoo Finance publi
 
 ![Pipeline](assets/pipeline.png)
 
+## TODO
+
+Here's where the project stands and what's next:
+
+### Data pipeline
+- [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
+- [x] Implement incremental data updates (fetch only new data since last load)
+- [x] Automate daily updates with a scheduler (cron)
+- [x] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
+- [ ] Add function to include new tickers dynamically
+- [ ] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
+- [ ] Add retry logic with exponential backoff for yfinance API failures
+
+### Code quality
+- [x] Replace `print()` calls with structured `logging` (log levels, file output)
+- [x] Remove unused imports (`pathlib.Path` in `fetch.py`)
+- [ ] Add error handling around API calls and database operations
+- [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
+
+### Testing & CI
+- [x] Add GitHub Actions workflow to run pytest on every push
+- [x] Add edge-case tests: overlapping date ranges, sparse ticker data
+- [x] Add `pytest --cov` and enforce ≥ 80% coverage
+- [x] Add edge-case test: empty API response
+
 ## Workflow
 
 The `update_warehouse` function orchestrates the full ETL pipeline: fetch from Yahoo Finance, build star-schema dimensions and fact table, and load incrementally into DuckDB.
@@ -46,12 +71,14 @@ flowchart TD
         T1[build_date_dimension\nExtract year, quarter, month,\nday_of_week, is_weekend, etc.]
         T2[build_ticker_dimension\nEnrich with company name,\nexchange, sector, country]
         T3[build_fact_table\nNormalize to long format,\nmap FK date_id + ticker_id]
+        T4[clean_fact_rows\nDrop null OHLC, invalid ranges,\nOHLC violations, duplicates]
     end
 
     Fetch --> T1
     Fetch --> T2
     T1 --> T3
     T2 --> T3
+    T3 --> T4
 
     subgraph Load
         direction TB
@@ -59,15 +86,17 @@ flowchart TD
         L2[append_dimension\ndim_ticker\nINSERT OR IGNORE]
         L3[append_fact\nfact_stock_prices\nINSERT OR IGNORE]
         L4[update_ticker_dimension\nRefresh last_trade_date]
+        L5[validate_fact_table\nSQL checks: null OHLC,\nOHLC violations, neg prices]
     end
 
-    T3 --> L1
-    T3 --> L2
+    T4 --> L1
+    T4 --> L2
     L1 --> L3
     L2 --> L3
     L3 --> L4
+    L4 --> L5
 
-    L4 --> Summary[Return row counts\ndim_date, dim_ticker,\nfact_stock_prices]
+    L5 --> Summary[Return row counts + violations\ndim_date, dim_ticker,\nfact_stock_prices, violations]
     Summary --> Close([Close connection])
 
     classDef startEnd fill:#E6E6FA,stroke:#333,stroke-width:2px,color:darkblue
@@ -76,13 +105,15 @@ flowchart TD
     classDef extract fill:#87CEEB,stroke:#333,stroke-width:2px,color:darkblue
     classDef transform fill:#FFDAB9,stroke:#333,stroke-width:2px,color:black
     classDef load fill:#DDA0DD,stroke:#333,stroke-width:2px,color:black
+    classDef validate fill:#FFB6C1,stroke:#333,stroke-width:2px,color:darkred
 
     class Start,Close startEnd
     class InitDB,Schema,CheckDate,Summary process
     class HasData decision
     class FullLoad,IncrLoad,Fetch extract
-    class T1,T2,T3 transform
+    class T1,T2,T3,T4 transform
     class L1,L2,L3,L4 load
+    class L5 validate
 ```
 
 ## Database Schema
@@ -256,29 +287,6 @@ A successful run ends with:
 Update complete — dim_date: 5, dim_ticker: 0, fact_stock_prices: 65
 ```
 
-## TODO
-
-### Data pipeline
-- [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
-- [x] Implement incremental data updates (fetch only new data since last load)
-- [x] Automate daily updates with a scheduler (cron)
-- [ ] Add function to include new tickers dynamically
-- [ ] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
-- [ ] Add retry logic with exponential backoff for yfinance API failures
-- [ ] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
-
-### Code quality
-- [x] Replace `print()` calls with structured `logging` (log levels, file output)
-- [x] Remove unused imports (`pathlib.Path` in `fetch.py`)
-- [ ] Add error handling around API calls and database operations
-- [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
-
-### Testing & CI
-- [x] Add GitHub Actions workflow to run pytest on every push
-- [x] Add edge-case tests: overlapping date ranges, sparse ticker data
-- [x] Add `pytest --cov` and enforce ≥ 80% coverage
-- [x] Add edge-case test: empty API response
-
 ## Possible Problems
 - Yahoo Finance restricts the accesss to the python package, then the data shouod need to be accessed directly from the api
 - The long format used in transformation could break memory bounds if many tickers and/or time intervals are considered
@@ -343,7 +351,17 @@ from adrs_warehouse.data.fetch import update_warehouse
 
 # Run an incremental update (or full load on first run)
 stats = update_warehouse("data/processed/db.duckdb")
-# stats -> {"dim_date": 5, "dim_ticker": 0, "fact_stock_prices": 65}
+# stats -> {
+#     "dim_date": 5,
+#     "dim_ticker": 0,
+#     "fact_stock_prices": 65,
+#     "violations": {
+#         "null_required_fields": 0,
+#         "ohlc_violations": 0,
+#         "negative_prices": 0,
+#         "negative_volume": 0,
+#     }
+# }
 ```
 
 ### Database-level helpers
@@ -356,6 +374,7 @@ The `ADRDatabase` class exposes the lower-level methods used by `update_warehous
 | `append_dimension(df, table_name)` | Appends new rows to a dimension table, skipping duplicates (`INSERT OR IGNORE`). Returns the number of rows added. |
 | `append_fact(df)` | Appends new rows to `fact_stock_prices`, skipping duplicates. Returns the number of rows added. |
 | `update_ticker_dimension(df)` | Updates `last_trade_date` on existing ticker rows with newer values. |
+| `validate_fact_table()` | Runs four SQL data-quality checks on `fact_stock_prices` after ingestion. Returns a `dict[str, int]` of violation counts; logs a warning for any non-zero count. |
 
 ### Transform helpers
 
@@ -366,6 +385,7 @@ These functions build the star-schema tables from a cleaned long-format DataFram
 | `build_date_dimension(df)` | Creates `dim_date` with derived attributes (year, quarter, month, day of week, weekend flags, etc.). |
 | `build_ticker_dimension(df, metadata)` | Creates `dim_ticker` enriched with company name, exchange, sector, and country from config. |
 | `build_fact_table(df, dim_date, dim_ticker)` | Creates `fact_stock_prices` with foreign keys to both dimensions. |
+| `clean_fact_rows(df)` | Drops rows failing any of four checks: null required OHLC fields, OHLC logical violations, negative/zero prices or negative volume, and duplicate `(date_id, ticker_id)` pairs. Called inside `build_fact_table()`. |
 
 ## Tests
 
