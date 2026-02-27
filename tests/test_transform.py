@@ -150,3 +150,12 @@ class TestBuildFactTable:
 
         # Should only have rows matching the single date
         assert len(result) == 2  # 1 date x 2 tickers
+
+    def test_adj_close_falls_back_to_close_when_missing(self, sample_multiindex_df):
+        df = sample_multiindex_df.drop(columns=["Adj Close"], level=1)
+        dim_date = build_date_dimension(df)
+        dim_ticker = build_ticker_dimension(df)
+        result = build_fact_table(df, dim_date, dim_ticker)
+
+        assert "adj_close_price" in result.columns
+        assert (result["adj_close_price"] == result["close_price"]).all()
