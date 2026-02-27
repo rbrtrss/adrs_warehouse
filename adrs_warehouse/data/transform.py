@@ -139,6 +139,76 @@ def build_ticker_dimension(
     return result
 
 
+def clean_fact_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply row-level data quality checks and drop invalid rows.
+
+    Checks (in order):
+    1. Null required OHLC fields
+    2. OHLC logical consistency
+    3. Negative / zero prices; negative volume
+    4. Duplicate (date_id, ticker_id) pairs
+
+    Args:
+        df: Fact DataFrame with renamed price columns.
+
+    Returns:
+        Cleaned DataFrame.
+    """
+    # 1. Null required fields
+    price_cols = ["open_price", "high_price", "low_price", "close_price"]
+    null_mask = df[price_cols].isnull().any(axis=1)
+    if null_mask.sum():
+        logger.warning(
+            "Dropping %d rows with null required OHLC fields", null_mask.sum()
+        )
+    df = df[~null_mask]
+
+    # 2. OHLC logical consistency
+    ohlc_mask = (
+        (df["high_price"] < df["low_price"])
+        | (df["high_price"] < df["open_price"])
+        | (df["high_price"] < df["close_price"])
+        | (df["low_price"] > df["open_price"])
+        | (df["low_price"] > df["close_price"])
+    )
+    if ohlc_mask.sum():
+        logger.warning("Dropping %d rows with OHLC logical violations", ohlc_mask.sum())
+    df = df[~ohlc_mask]
+
+    # 3. Negative / zero prices and negative volume
+    all_price_cols = [
+        "open_price",
+        "high_price",
+        "low_price",
+        "close_price",
+        "adj_close_price",
+    ]
+    existing_price_cols = [c for c in all_price_cols if c in df.columns]
+    neg_price_mask = (df[existing_price_cols] <= 0).any(axis=1)
+    if "volume" in df.columns:
+        neg_vol_mask = df["volume"] < 0
+    else:
+        neg_vol_mask = pd.Series(False, index=df.index)
+    invalid_mask = neg_price_mask | neg_vol_mask
+    if invalid_mask.sum():
+        logger.warning(
+            "Dropping %d rows with negative/zero prices or negative volume",
+            invalid_mask.sum(),
+        )
+    df = df[~invalid_mask]
+
+    # 4. Duplicates
+    dup_mask = df.duplicated(subset=["date_id", "ticker_id"], keep="first")
+    if dup_mask.sum():
+        logger.warning(
+            "Dropping %d duplicate (date_id, ticker_id) rows", dup_mask.sum()
+        )
+    df = df[~dup_mask]
+
+    return df
+
+
 def build_fact_table(
     df: pd.DataFrame, dim_date: pd.DataFrame, dim_ticker: pd.DataFrame
 ) -> pd.DataFrame:
@@ -180,6 +250,9 @@ def build_fact_table(
     # Add adj_close_price column if not present (use close_price as fallback)
     if "adj_close_price" not in fact_df.columns:
         fact_df["adj_close_price"] = fact_df["close_price"]
+
+    # Clean row-level data quality issues
+    fact_df = clean_fact_rows(fact_df)
 
     # Select and order columns for fact table
     fact_columns = [

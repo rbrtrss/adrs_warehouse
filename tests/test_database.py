@@ -177,6 +177,70 @@ class TestUpdateTickerDimension:
         assert result.iloc[0]["last_trade_date"] == original_date
 
 
+class TestValidateFactTable:
+    def _seed_dimensions(self, db):
+        """Insert one dim_date and one dim_ticker row for FK references."""
+        db.conn.execute("""
+            INSERT INTO dim_date VALUES
+            (20240102, '2024-01-02', 2024, 1, 1, 'January',
+             2, 1, 'Tuesday', 1, false, true, false)
+        """)
+        db.conn.execute("""
+            INSERT INTO dim_ticker VALUES
+            (1, 'TEST', 'Test Co', 'NASDAQ', 'Tech', 'USA', NULL, NULL)
+        """)
+
+    def test_returns_zero_violations_for_clean_data(self, db, sample_multiindex_df):
+        dim_date = build_date_dimension(sample_multiindex_df)
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        fact = build_fact_table(sample_multiindex_df, dim_date, dim_ticker)
+        db.append_dimension(dim_date, "dim_date")
+        db.append_dimension(dim_ticker, "dim_ticker")
+        db.append_fact(fact)
+
+        violations = db.validate_fact_table()
+        assert violations["null_required_fields"] == 0
+        assert violations["ohlc_violations"] == 0
+        assert violations["negative_prices"] == 0
+        assert violations["negative_volume"] == 0
+
+    def test_detects_null_required_fields(self, db):
+        self._seed_dimensions(db)
+        db.conn.execute("""
+            INSERT INTO fact_stock_prices
+            VALUES (20240102, 1, NULL, 11.0, 9.5, 10.5, 10.4, 1000)
+        """)
+        violations = db.validate_fact_table()
+        assert violations["null_required_fields"] == 1
+
+    def test_detects_ohlc_violation(self, db):
+        self._seed_dimensions(db)
+        db.conn.execute("""
+            INSERT INTO fact_stock_prices
+            VALUES (20240102, 1, 10.0, 8.0, 9.5, 10.5, 10.4, 1000)
+        """)
+        violations = db.validate_fact_table()
+        assert violations["ohlc_violations"] == 1
+
+    def test_detects_negative_price(self, db):
+        self._seed_dimensions(db)
+        db.conn.execute("""
+            INSERT INTO fact_stock_prices
+            VALUES (20240102, 1, -1.0, 11.0, 9.5, 10.5, 10.4, 1000)
+        """)
+        violations = db.validate_fact_table()
+        assert violations["negative_prices"] == 1
+
+    def test_detects_negative_volume(self, db):
+        self._seed_dimensions(db)
+        db.conn.execute("""
+            INSERT INTO fact_stock_prices
+            VALUES (20240102, 1, 10.0, 11.0, 9.5, 10.5, 10.4, -5)
+        """)
+        violations = db.validate_fact_table()
+        assert violations["negative_volume"] == 1
+
+
 class TestCreateDatabase:
     def test_returns_duckdb_instance(self):
         db = create_database("duckdb", db_path=":memory:")

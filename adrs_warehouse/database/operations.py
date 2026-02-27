@@ -160,6 +160,40 @@ class DuckDBDatabase(DatabaseBackend):
         """)
         logger.debug("Ticker dimension updated with latest trade dates")
 
+    def validate_fact_table(self) -> dict[str, int]:
+        """Run post-ingestion data quality checks on fact_stock_prices."""
+        checks = {
+            "null_required_fields": """
+                SELECT COUNT(*) FROM fact_stock_prices
+                WHERE open_price IS NULL OR high_price IS NULL
+                OR low_price IS NULL OR close_price IS NULL
+            """,
+            "ohlc_violations": """
+                SELECT COUNT(*) FROM fact_stock_prices
+                WHERE high_price < low_price OR high_price < open_price
+                OR high_price < close_price OR low_price > open_price
+                OR low_price > close_price
+            """,
+            "negative_prices": """
+                SELECT COUNT(*) FROM fact_stock_prices
+                WHERE open_price <= 0 OR high_price <= 0 OR low_price <= 0
+                OR close_price <= 0 OR adj_close_price <= 0
+            """,
+            "negative_volume": """
+                SELECT COUNT(*) FROM fact_stock_prices
+                WHERE volume < 0
+            """,
+        }
+
+        violations = {}
+        for name, sql in checks.items():
+            count = self.conn.execute(sql).fetchone()[0]
+            violations[name] = count
+            if count > 0:
+                logger.warning("Data quality violation — %s: %d row(s)", name, count)
+
+        return violations
+
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()

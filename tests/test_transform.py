@@ -6,6 +6,7 @@ from adrs_warehouse.data.transform import (
     build_fact_table,
     build_ticker_dimension,
     clean_data,
+    clean_fact_rows,
     normalize_prices_long,
 )
 
@@ -121,6 +122,76 @@ class TestBuildTickerDimension:
         assert fake_row["exchange"] == "Unknown"
         assert fake_row["sector"] == "Unknown"
         assert fake_row["country"] == "Unknown"
+
+
+class TestCleanFactRows:
+    def _row(self, **kwargs):
+        defaults = {
+            "date_id": 20240102,
+            "ticker_id": 1,
+            "open_price": 10.0,
+            "high_price": 11.0,
+            "low_price": 9.5,
+            "close_price": 10.5,
+            "adj_close_price": 10.4,
+            "volume": 1000,
+        }
+        defaults.update(kwargs)
+        return defaults
+
+    def test_drops_rows_with_null_ohlc_fields(self):
+        df = pd.DataFrame([self._row(), self._row(open_price=None)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_rows_where_high_less_than_low(self):
+        df = pd.DataFrame([self._row(), self._row(high_price=8.0, low_price=9.5)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_rows_where_high_less_than_close(self):
+        df = pd.DataFrame([self._row(), self._row(high_price=10.0, close_price=11.0)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_rows_where_low_greater_than_open(self):
+        df = pd.DataFrame([self._row(), self._row(low_price=11.0, open_price=9.0)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_rows_with_negative_price(self):
+        df = pd.DataFrame([self._row(), self._row(open_price=-1.0)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_rows_with_zero_price(self):
+        df = pd.DataFrame([self._row(), self._row(close_price=0.0)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_rows_with_negative_volume(self):
+        df = pd.DataFrame([self._row(), self._row(volume=-1)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_allows_zero_volume(self):
+        df = pd.DataFrame([self._row(volume=0)])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_drops_duplicate_date_ticker(self):
+        df = pd.DataFrame([self._row(), self._row()])
+        result = clean_fact_rows(df)
+        assert len(result) == 1
+
+    def test_valid_rows_pass_through_unchanged(self):
+        rows = [
+            self._row(date_id=20240102, ticker_id=1),
+            self._row(date_id=20240103, ticker_id=1),
+        ]
+        df = pd.DataFrame(rows)
+        result = clean_fact_rows(df)
+        assert len(result) == 2
 
 
 class TestBuildFactTable:

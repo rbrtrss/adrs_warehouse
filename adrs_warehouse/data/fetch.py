@@ -123,10 +123,13 @@ def update_warehouse(
     fact_count = db.append_fact(fact)
     db.update_ticker_dimension(dim_ticker)
 
+    violations = db.validate_fact_table()
+
     summary = {
         "dim_date": date_count,
         "dim_ticker": ticker_count,
         "fact_stock_prices": fact_count,
+        "violations": violations,
     }
 
     logger.info(
