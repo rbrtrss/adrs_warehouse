@@ -42,6 +42,18 @@ class DatabaseBackend(ABC):
         Returns {} if the table is empty or does not exist yet."""
 
     @abstractmethod
+    def begin(self) -> None:
+        """Begin an explicit transaction."""
+
+    @abstractmethod
+    def commit(self) -> None:
+        """Commit the current transaction."""
+
+    @abstractmethod
+    def rollback(self) -> None:
+        """Roll back the current transaction."""
+
+    @abstractmethod
     def create_table_from_dataframe(self, df: pd.DataFrame, table_name: str) -> None:
         """Create a table from a pandas DataFrame."""
 
