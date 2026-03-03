@@ -119,7 +119,7 @@ def build_ticker_dimension(
 
     rows = []
     for ticker in sorted(tickers):
-        ticker_id = existing_id_map.get(ticker, None)
+        ticker_id = existing_id_map.get(ticker)
         if ticker_id is None:
             ticker_id = next_id
             next_id += 1
