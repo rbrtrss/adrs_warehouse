@@ -123,6 +123,45 @@ class TestBuildTickerDimension:
         assert fake_row["sector"] == "Unknown"
         assert fake_row["country"] == "Unknown"
 
+    def test_stable_ids_for_existing_tickers(self, sample_multiindex_df):
+        # GGAL=5, YPF=9 in existing map — both must keep their IDs
+        existing_id_map = {"GGAL": 5, "YPF": 9}
+        result = build_ticker_dimension(
+            sample_multiindex_df, existing_id_map=existing_id_map
+        )
+        assert result.set_index("ticker_symbol").loc["GGAL", "ticker_id"] == 5
+        assert result.set_index("ticker_symbol").loc["YPF", "ticker_id"] == 9
+
+    def test_new_ticker_gets_id_above_existing_max(self, sample_multiindex_df):
+        # Add TEO which sorts between GGAL and YPF alphabetically
+        df = sample_multiindex_df.copy()
+        for field in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]:
+            df[("TEO", field)] = 1.0
+        # GGAL=1, YPF=2 already exist; TEO is new → should get 3
+        existing_id_map = {"GGAL": 1, "YPF": 2}
+        result = build_ticker_dimension(df, existing_id_map=existing_id_map)
+        assert result.set_index("ticker_symbol").loc["GGAL", "ticker_id"] == 1
+        assert result.set_index("ticker_symbol").loc["YPF", "ticker_id"] == 2
+        assert result.set_index("ticker_symbol").loc["TEO", "ticker_id"] == 3
+
+    def test_new_ticker_does_not_collide_with_sparse_ids(self, sample_multiindex_df):
+        # Existing IDs are non-contiguous: GGAL=1, YPF=10
+        # New ticker BMA should get 11 (max+1), not 2
+        df = sample_multiindex_df.copy()
+        for field in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]:
+            df[("BMA", field)] = 1.0
+        existing_id_map = {"GGAL": 1, "YPF": 10}
+        result = build_ticker_dimension(df, existing_id_map=existing_id_map)
+        assert result.set_index("ticker_symbol").loc["BMA", "ticker_id"] == 11
+
+    def test_first_run_with_empty_id_map_equals_no_arg(self, sample_multiindex_df):
+        result_no_arg = build_ticker_dimension(sample_multiindex_df)
+        result_empty = build_ticker_dimension(sample_multiindex_df, existing_id_map={})
+        assert list(result_no_arg["ticker_id"]) == list(result_empty["ticker_id"])
+        assert list(result_no_arg["ticker_symbol"]) == list(
+            result_empty["ticker_symbol"]
+        )
+
 
 class TestCleanFactRows:
     def _row(self, **kwargs):

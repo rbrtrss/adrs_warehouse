@@ -92,6 +92,20 @@ class DuckDBDatabase(DatabaseBackend):
         logger.debug("Last loaded date: %s", last_date)
         return last_date
 
+    def get_ticker_id_map(self) -> dict[str, int]:
+        """Return {ticker_symbol: ticker_id} for all rows in dim_ticker."""
+        import duckdb
+
+        try:
+            result = self.conn.execute(
+                "SELECT ticker_symbol, ticker_id FROM dim_ticker"
+            ).df()
+        except duckdb.CatalogException:
+            return {}
+        if result.empty:
+            return {}
+        return dict(zip(result["ticker_symbol"], result["ticker_id"]))
+
     def append_dimension(self, df: pd.DataFrame, table_name: str) -> int:
         """
         Append only new rows to a dimension table, skipping duplicates.

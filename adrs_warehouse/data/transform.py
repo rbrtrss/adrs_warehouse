@@ -90,7 +90,9 @@ def build_date_dimension(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_ticker_dimension(
-    df: pd.DataFrame, metadata: dict[str, dict] = None
+    df: pd.DataFrame,
+    metadata: dict[str, dict] = None,
+    existing_id_map: dict[str, int] = None,
 ) -> pd.DataFrame:
     """
     Build a ticker dimension table with metadata.
@@ -98,6 +100,9 @@ def build_ticker_dimension(
     Args:
         df: DataFrame with MultiIndex columns (ticker, field).
         metadata: Dictionary with ticker metadata. Defaults to TICKER_METADATA.
+        existing_id_map: {ticker_symbol: ticker_id} from DB; pins known symbols
+            to their stored IDs and assigns fresh IDs above the current max for
+            new symbols. Pass {} or omit on first run.
 
     Returns:
         DataFrame with ticker dimension attributes.
@@ -105,10 +110,19 @@ def build_ticker_dimension(
     if metadata is None:
         metadata = TICKER_METADATA
 
+    if existing_id_map is None:
+        existing_id_map = {}
+
     tickers = df.columns.get_level_values(0).unique()
 
+    next_id = max(existing_id_map.values(), default=0) + 1
+
     rows = []
-    for i, ticker in enumerate(sorted(tickers), start=1):
+    for ticker in sorted(tickers):
+        ticker_id = existing_id_map.get(ticker, None)
+        if ticker_id is None:
+            ticker_id = next_id
+            next_id += 1
         sub = df[ticker]
         valid_dates = sub.dropna(how="all").index
         first_date = valid_dates.min() if len(valid_dates) > 0 else None
@@ -117,7 +131,7 @@ def build_ticker_dimension(
         meta = metadata.get(ticker, {})
         rows.append(
             {
-                "ticker_id": i,
+                "ticker_id": ticker_id,
                 "ticker_symbol": ticker,
                 "company_name": meta.get("company_name", ticker),
                 "exchange": meta.get("exchange", "Unknown"),

@@ -37,6 +37,11 @@ class DatabaseBackend(ABC):
         """Get the maximum date currently loaded in dim_date."""
 
     @abstractmethod
+    def get_ticker_id_map(self) -> dict[str, int]:
+        """Return {ticker_symbol: ticker_id} for all rows in dim_ticker.
+        Returns {} if the table is empty or does not exist yet."""
+
+    @abstractmethod
     def create_table_from_dataframe(self, df: pd.DataFrame, table_name: str) -> None:
         """Create a table from a pandas DataFrame."""
 

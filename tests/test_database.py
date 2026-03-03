@@ -241,6 +241,25 @@ class TestValidateFactTable:
         assert violations["negative_volume"] == 1
 
 
+class TestGetTickerIdMap:
+    def test_returns_empty_dict_when_dim_ticker_is_empty(self, db):
+        result = db.get_ticker_id_map()
+        assert result == {}
+
+    def test_returns_correct_mapping_after_insert(self, db, sample_multiindex_df):
+        dim_ticker = build_ticker_dimension(sample_multiindex_df)
+        db.append_dimension(dim_ticker, "dim_ticker")
+
+        result = db.get_ticker_id_map()
+        assert result == {"GGAL": 1, "YPF": 2}
+
+    def test_returns_empty_dict_before_schema_creation(self):
+        bare_db = ADRDatabase(":memory:")
+        result = bare_db.get_ticker_id_map()
+        assert result == {}
+        bare_db.close()
+
+
 class TestCreateDatabase:
     def test_returns_duckdb_instance(self):
         db = create_database("duckdb", db_path=":memory:")

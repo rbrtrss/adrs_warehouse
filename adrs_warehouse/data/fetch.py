@@ -115,7 +115,8 @@ def update_warehouse(
         return {"dim_date": 0, "dim_ticker": 0, "fact_stock_prices": 0}
 
     dim_date = transform.build_date_dimension(raw)
-    dim_ticker = transform.build_ticker_dimension(raw)
+    existing_id_map = db.get_ticker_id_map()
+    dim_ticker = transform.build_ticker_dimension(raw, existing_id_map=existing_id_map)
     fact = transform.build_fact_table(raw, dim_date, dim_ticker)
 
     date_count = db.append_dimension(dim_date, "dim_date")
