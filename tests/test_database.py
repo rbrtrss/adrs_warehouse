@@ -302,12 +302,14 @@ class TestUpdateWarehouse:
         assert result1["dim_date"] == 3
         assert result1["dim_ticker"] == 2
         assert result1["fact_stock_prices"] == 6
+        assert isinstance(result1["violations"], dict)
 
         # Second call — same data, should add 0
         result2 = update_warehouse(db_path=db_path)
         assert result2["dim_date"] == 0
         assert result2["dim_ticker"] == 0
         assert result2["fact_stock_prices"] == 0
+        assert isinstance(result2["violations"], dict)
 
     @patch("adrs_warehouse.data.fetch.download_adr_data")
     def test_empty_api_response(self, mock_download, tmp_path):
@@ -319,6 +321,12 @@ class TestUpdateWarehouse:
         assert result["dim_date"] == 0
         assert result["dim_ticker"] == 0
         assert result["fact_stock_prices"] == 0
+        assert result["violations"] == {
+            "null_required_fields": 0,
+            "ohlc_violations": 0,
+            "negative_prices": 0,
+            "negative_volume": 0,
+        }
 
     @patch("adrs_warehouse.data.fetch.download_adr_data")
     def test_rollback_on_partial_failure(

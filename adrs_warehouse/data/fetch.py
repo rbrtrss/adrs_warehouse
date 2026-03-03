@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Optional, TypedDict
 
 import pandas as pd
 import yfinance as yf
@@ -11,6 +11,13 @@ from ..utils.logging import setup_logging
 from . import transform
 
 logger = logging.getLogger(__name__)
+
+
+class WarehouseUpdateResult(TypedDict):
+    dim_date: int
+    dim_ticker: int
+    fact_stock_prices: int
+    violations: dict[str, int]
 
 
 def download_adr_data(
@@ -78,7 +85,7 @@ def build_ticker_dimension(df: pd.DataFrame) -> pd.DataFrame:
 def update_warehouse(
     db_path: str = "data/processed/db.duckdb",
     db: Optional[DatabaseBackend] = None,
-) -> dict[str, int]:
+) -> WarehouseUpdateResult:
     """
     Incrementally update the ADR data warehouse.
 
@@ -112,7 +119,17 @@ def update_warehouse(
 
         if raw.empty:
             logger.info("No data returned from API. Skipping load.")
-            return {"dim_date": 0, "dim_ticker": 0, "fact_stock_prices": 0}
+            return WarehouseUpdateResult(
+                dim_date=0,
+                dim_ticker=0,
+                fact_stock_prices=0,
+                violations={
+                    "null_required_fields": 0,
+                    "ohlc_violations": 0,
+                    "negative_prices": 0,
+                    "negative_volume": 0,
+                },
+            )
 
         dim_date = transform.build_date_dimension(raw)
         existing_id_map = db.get_ticker_id_map()
@@ -135,12 +152,12 @@ def update_warehouse(
 
         violations = db.validate_fact_table()
 
-        summary = {
-            "dim_date": date_count,
-            "dim_ticker": ticker_count,
-            "fact_stock_prices": fact_count,
-            "violations": violations,
-        }
+        summary = WarehouseUpdateResult(
+            dim_date=date_count,
+            dim_ticker=ticker_count,
+            fact_stock_prices=fact_count,
+            violations=violations,
+        )
 
         logger.info(
             "Rows added: dim_date=%d, dim_ticker=%d, fact_stock_prices=%d",
