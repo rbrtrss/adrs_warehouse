@@ -329,6 +329,21 @@ class TestUpdateWarehouse:
         }
 
     @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_incremental_start_date_advances_by_one_day(
+        self, mock_download, sample_multiindex_df, tmp_path
+    ):
+        mock_download.return_value = sample_multiindex_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        # Full load — last date in sample is 2024-01-04
+        update_warehouse(db_path=db_path)
+
+        # Incremental call should request data starting from 2024-01-05
+        update_warehouse(db_path=db_path)
+        _, kwargs = mock_download.call_args
+        assert kwargs["start_date"] == "2024-01-05"
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
     def test_rollback_on_partial_failure(
         self, mock_download, sample_multiindex_df, tmp_path
     ):

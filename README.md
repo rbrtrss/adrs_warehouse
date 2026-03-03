@@ -294,6 +294,18 @@ A successful run ends with:
 Update complete — dim_date: 5, dim_ticker: 0, fact_stock_prices: 65
 ```
 
+## Pipeline Guarantees
+
+- **Idempotence:** re-running the pipeline for an already-loaded date range inserts 0 rows.
+- **Incrementality:** only dates strictly after `MAX(dim_date.date)` are fetched from the API
+  on each run; the last loaded date is never re-downloaded.
+- **Key stability:** `ticker_id` is assigned once based on the existing database mapping and
+  never reassigned, even if the ticker list changes between runs.
+- **Data quality:** after each load, OHLC consistency and non-negativity checks are run against
+  the full fact table; counts are returned in the `violations` key of the result.
+- **Atomicity:** all writes in a single run (dim_date, dim_ticker, fact_stock_prices) are
+  wrapped in a single transaction; any failure triggers a full rollback.
+
 ## Possible Problems
 - Yahoo Finance restricts the accesss to the python package, then the data shouod need to be accessed directly from the api
 - The long format used in transformation could break memory bounds if many tickers and/or time intervals are considered

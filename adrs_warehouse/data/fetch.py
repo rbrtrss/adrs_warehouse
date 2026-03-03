@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from typing import Optional, TypedDict
 
 import pandas as pd
@@ -112,7 +113,9 @@ def update_warehouse(
             logger.info("No existing data found. Performing full load")
             start = START_DATE
         else:
-            start = str(last_date)
+            # Advance by one day so the last loaded date is not re-fetched.
+            # yfinance skips non-trading days, so a plain calendar +1 is sufficient.
+            start = str(last_date + timedelta(days=1))
             logger.info("Last loaded date: %s. Fetching from %s", last_date, start)
 
         raw = download_adr_data(start_date=start)
