@@ -260,6 +260,26 @@ class TestGetTickerIdMap:
         bare_db.close()
 
 
+class TestDuckDBTransaction:
+    def test_commit_persists_data(self, db):
+        db.begin()
+        db.conn.execute(
+            "INSERT INTO dim_date VALUES "
+            "(20240102,'2024-01-02',2024,1,1,'January',2,1,'Tuesday',1,false,true,false)"
+        )
+        db.commit()
+        assert db.query("SELECT COUNT(*) AS n FROM dim_date").iloc[0]["n"] == 1
+
+    def test_rollback_reverts_data(self, db):
+        db.begin()
+        db.conn.execute(
+            "INSERT INTO dim_date VALUES "
+            "(20240102,'2024-01-02',2024,1,1,'January',2,1,'Tuesday',1,false,true,false)"
+        )
+        db.rollback()
+        assert db.query("SELECT COUNT(*) AS n FROM dim_date").iloc[0]["n"] == 0
+
+
 class TestCreateDatabase:
     def test_returns_duckdb_instance(self):
         db = create_database("duckdb", db_path=":memory:")
@@ -299,3 +319,26 @@ class TestUpdateWarehouse:
         assert result["dim_date"] == 0
         assert result["dim_ticker"] == 0
         assert result["fact_stock_prices"] == 0
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_rollback_on_partial_failure(
+        self, mock_download, sample_multiindex_df, tmp_path
+    ):
+        mock_download.return_value = sample_multiindex_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        db = create_database("duckdb", db_path=db_path)
+        with (
+            patch.object(
+                db, "append_fact", side_effect=RuntimeError("simulated failure")
+            ),
+            pytest.raises(RuntimeError, match="simulated failure"),
+        ):
+            update_warehouse(db=db)
+
+        # Reconnect and verify dim writes were rolled back
+        db2 = create_database("duckdb", db_path=db_path)
+        db2.create_star_schema()
+        assert db2.query("SELECT COUNT(*) AS n FROM dim_date").iloc[0]["n"] == 0
+        assert db2.query("SELECT COUNT(*) AS n FROM dim_ticker").iloc[0]["n"] == 0
+        db2.close()

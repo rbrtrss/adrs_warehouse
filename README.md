@@ -32,7 +32,7 @@ Here's where the project stands and what's next:
 - [x] Automate daily updates with a scheduler (cron)
 - [x] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
 - [ ] Add function to include new tickers dynamically
-- [ ] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
+- [x] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
 - [ ] Add retry logic with exponential backoff for yfinance API failures
 
 ### Code quality
@@ -80,24 +80,27 @@ flowchart TD
     T2 --> T3
     T3 --> T4
 
-    subgraph Load
+    subgraph Load ["Load — atomic transaction"]
         direction TB
+        LB[db.begin]
         L1[append_dimension\ndim_date\nINSERT OR IGNORE]
         L2[append_dimension\ndim_ticker\nINSERT OR IGNORE]
         L3[append_fact\nfact_stock_prices\nINSERT OR IGNORE]
         L4[update_ticker_dimension\nRefresh last_trade_date]
-        L5[validate_fact_table\nSQL checks: null OHLC,\nOHLC violations, neg prices]
+        LC[db.commit]
+        LR[db.rollback\nre-raise]
     end
 
-    T4 --> L1
-    T4 --> L2
-    L1 --> L3
-    L2 --> L3
-    L3 --> L4
-    L4 --> L5
+    L5[validate_fact_table\nSQL checks: null OHLC,\nOHLC violations, neg prices]
+
+    T4 --> LB
+    LB --> L1 --> L2 --> L3 --> L4 --> LC
+    L3 -.->|exception| LR
+    LC --> L5
+    LR --> Close
 
     L5 --> Summary[Return row counts + violations\ndim_date, dim_ticker,\nfact_stock_prices, violations]
-    Summary --> Close([Close connection])
+    Summary --> Close([Close connection — always via finally])
 
     classDef startEnd fill:#E6E6FA,stroke:#333,stroke-width:2px,color:darkblue
     classDef process fill:#90EE90,stroke:#333,stroke-width:2px,color:darkgreen
@@ -106,6 +109,8 @@ flowchart TD
     classDef transform fill:#FFDAB9,stroke:#333,stroke-width:2px,color:black
     classDef load fill:#DDA0DD,stroke:#333,stroke-width:2px,color:black
     classDef validate fill:#FFB6C1,stroke:#333,stroke-width:2px,color:darkred
+    classDef txn fill:#B8E0FF,stroke:#0066CC,stroke-width:2px,color:darkblue
+    classDef rollback fill:#FFCCCC,stroke:#CC0000,stroke-width:2px,color:darkred
 
     class Start,Close startEnd
     class InitDB,Schema,CheckDate,Summary process
@@ -114,6 +119,8 @@ flowchart TD
     class T1,T2,T3,T4 transform
     class L1,L2,L3,L4 load
     class L5 validate
+    class LB,LC txn
+    class LR rollback
 ```
 
 ## Database Schema
@@ -371,10 +378,13 @@ The `ADRDatabase` class exposes the lower-level methods used by `update_warehous
 | Method | Description |
 |---|---|
 | `get_last_loaded_date()` | Returns the most recent date in `dim_date`, or `None` if the table is empty. |
+| `begin()` | Opens an explicit transaction. Called before the four load writes. |
+| `commit()` | Commits the current transaction on success. |
+| `rollback()` | Rolls back the current transaction on any write failure, leaving the DB unchanged. |
 | `append_dimension(df, table_name)` | Appends new rows to a dimension table, skipping duplicates (`INSERT OR IGNORE`). Returns the number of rows added. |
 | `append_fact(df)` | Appends new rows to `fact_stock_prices`, skipping duplicates. Returns the number of rows added. |
 | `update_ticker_dimension(df)` | Updates `last_trade_date` on existing ticker rows with newer values. |
-| `validate_fact_table()` | Runs four SQL data-quality checks on `fact_stock_prices` after ingestion. Returns a `dict[str, int]` of violation counts; logs a warning for any non-zero count. |
+| `validate_fact_table()` | Runs four SQL data-quality checks on `fact_stock_prices` after the transaction commits. Returns a `dict[str, int]` of violation counts; logs a warning for any non-zero count. |
 
 ### Transform helpers
 

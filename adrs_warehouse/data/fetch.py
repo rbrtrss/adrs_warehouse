@@ -98,47 +98,57 @@ def update_warehouse(
         db = create_database("duckdb", db_path=db_path)
     db.create_star_schema()
 
-    last_date = db.get_last_loaded_date()
+    try:
+        last_date = db.get_last_loaded_date()
 
-    if last_date is None:
-        logger.info("No existing data found. Performing full load")
-        start = START_DATE
-    else:
-        start = str(last_date)
-        logger.info("Last loaded date: %s. Fetching from %s", last_date, start)
+        if last_date is None:
+            logger.info("No existing data found. Performing full load")
+            start = START_DATE
+        else:
+            start = str(last_date)
+            logger.info("Last loaded date: %s. Fetching from %s", last_date, start)
 
-    raw = download_adr_data(start_date=start)
+        raw = download_adr_data(start_date=start)
 
-    if raw.empty:
-        logger.info("No data returned from API. Skipping load.")
+        if raw.empty:
+            logger.info("No data returned from API. Skipping load.")
+            return {"dim_date": 0, "dim_ticker": 0, "fact_stock_prices": 0}
+
+        dim_date = transform.build_date_dimension(raw)
+        existing_id_map = db.get_ticker_id_map()
+        dim_ticker = transform.build_ticker_dimension(
+            raw, existing_id_map=existing_id_map
+        )
+        fact = transform.build_fact_table(raw, dim_date, dim_ticker)
+
+        db.begin()
+        try:
+            date_count = db.append_dimension(dim_date, "dim_date")
+            ticker_count = db.append_dimension(dim_ticker, "dim_ticker")
+            fact_count = db.append_fact(fact)
+            db.update_ticker_dimension(dim_ticker)
+        except Exception:
+            db.rollback()
+            raise
+        else:
+            db.commit()
+
+        violations = db.validate_fact_table()
+
+        summary = {
+            "dim_date": date_count,
+            "dim_ticker": ticker_count,
+            "fact_stock_prices": fact_count,
+            "violations": violations,
+        }
+
+        logger.info(
+            "Rows added: dim_date=%d, dim_ticker=%d, fact_stock_prices=%d",
+            date_count,
+            ticker_count,
+            fact_count,
+        )
+
+        return summary
+    finally:
         db.close()
-        return {"dim_date": 0, "dim_ticker": 0, "fact_stock_prices": 0}
-
-    dim_date = transform.build_date_dimension(raw)
-    existing_id_map = db.get_ticker_id_map()
-    dim_ticker = transform.build_ticker_dimension(raw, existing_id_map=existing_id_map)
-    fact = transform.build_fact_table(raw, dim_date, dim_ticker)
-
-    date_count = db.append_dimension(dim_date, "dim_date")
-    ticker_count = db.append_dimension(dim_ticker, "dim_ticker")
-    fact_count = db.append_fact(fact)
-    db.update_ticker_dimension(dim_ticker)
-
-    violations = db.validate_fact_table()
-
-    summary = {
-        "dim_date": date_count,
-        "dim_ticker": ticker_count,
-        "fact_stock_prices": fact_count,
-        "violations": violations,
-    }
-
-    logger.info(
-        "Rows added: dim_date=%d, dim_ticker=%d, fact_stock_prices=%d",
-        date_count,
-        ticker_count,
-        fact_count,
-    )
-
-    db.close()
-    return summary

@@ -106,6 +106,18 @@ class DuckDBDatabase(DatabaseBackend):
             return {}
         return dict(zip(result["ticker_symbol"], result["ticker_id"]))
 
+    def begin(self) -> None:
+        self.conn.begin()
+        logger.debug("Transaction started")
+
+    def commit(self) -> None:
+        self.conn.commit()
+        logger.debug("Transaction committed")
+
+    def rollback(self) -> None:
+        self.conn.rollback()
+        logger.warning("Transaction rolled back")
+
     def append_dimension(self, df: pd.DataFrame, table_name: str) -> int:
         """
         Append only new rows to a dimension table, skipping duplicates.
