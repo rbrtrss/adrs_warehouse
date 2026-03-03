@@ -2,50 +2,38 @@
 
 ![CI](https://github.com/rbrtrss/adrs_warehouse/actions/workflows/ci.yml/badge.svg)
 
-We're building a data warehouse model for the following US-listed argentine ADRs (American Depositary Receipt):
+`adrs_warehouse` is a production-style data warehouse for the 13 US-listed Argentine ADRs (American Depositary Receipts). It fetches daily OHLC data from Yahoo Finance, transforms it into a star schema, and loads it incrementally into an embedded DuckDB database — with atomic transactions, data validation, and a scheduled CLI entry point.
 
-- "YPF",    # YPF S.A. (NYSE)
-- "GGAL",   # Grupo Financiero Galicia (NASDAQ)
-- "BMA",    # Banco Macro (NYSE)
-- "BBAR",   # BBVA Argentina (NYSE)
-- "PAM",    # Pampa Energia (NYSE)
-- "TEO",    # Telecom Argentina (NYSE)
-- "CEPU",   # Central Puerto (NYSE)
-- "LOMA",   # Loma Negra (NYSE)
-- "CRESY",  # Cresud (NASDAQ)
-- "IRS",    # IRSA Inversiones (NYSE)
-- "SUPV",   # Grupo Supervielle (NYSE)
-- "MELI",   # MercadoLibre (NASDAQ)
-- "BIOX",   # Bioceres Crop Solutions (NASDAQ)
-  
-Raw data is pulled from `yfinance` python package that wraps Yahoo Finance public available API. The resulting multilevel pandas dataframe is indexed by the date, in level 0 are the tickers and in level 1 the stock prices. The table is cleaned of missing values, and flattened to a long format. This flat DataFrame is persisted into a `duckdb` database.
+**Stack:** Python 3.9+ · DuckDB · pandas · yfinance · pytest · GitHub Actions · uv
 
-![Pipeline](assets/pipeline.png)
+## Key Engineering Highlights
 
-## TODO
+- **Star schema design** — `dim_date`, `dim_ticker`, and `fact_stock_prices` with composite primary keys enforcing one row per ticker per trading day.
+- **Incremental ETL** — each run fetches only dates after `MAX(dim_date.date)`; full load on first run, idempotent on re-runs.
+- **Atomic transactions** — all writes (dims + fact) are wrapped in a single transaction; any failure triggers a full rollback, leaving the DB consistent.
+- **Abstract database backend** — a `DatabaseBackend` interface decouples the pipeline from DuckDB; alternative backends (MotherDuck, SQLite, Postgres) can be swapped in without touching any other code.
+- **Data validation** — OHLC consistency checks, null detection, and non-negativity constraints run at both the transform stage and post-load via SQL; violation counts are returned in every run's result dict.
+- **CI matrix** — GitHub Actions runs the full pytest suite on every push; coverage is enforced at ≥ 80%.
+- **Structured logging** — `logging` with rotating file handler replaces `print`; log level and output path are configurable.
+- **Cron automation** — a `[project.scripts]` CLI entry point (`adrs-warehouse`) integrates cleanly with cron for daily post-market updates.
 
-Here's where the project stands and what's next:
+## Tracked Tickers
 
-### Data pipeline
-- [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
-- [x] Implement incremental data updates (fetch only new data since last load)
-- [x] Automate daily updates with a scheduler (cron)
-- [x] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
-- [ ] Add function to include new tickers dynamically
-- [x] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
-- [ ] Add retry logic with exponential backoff for yfinance API failures
+Tracks 13 Argentine companies listed on NYSE and NASDAQ:
 
-### Code quality
-- [x] Replace `print()` calls with structured `logging` (log levels, file output)
-- [x] Remove unused imports (`pathlib.Path` in `fetch.py`)
-- [ ] Add error handling around API calls and database operations
-- [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
-
-### Testing & CI
-- [x] Add GitHub Actions workflow to run pytest on every push
-- [x] Add edge-case tests: overlapping date ranges, sparse ticker data
-- [x] Add `pytest --cov` and enforce ≥ 80% coverage
-- [x] Add edge-case test: empty API response
+- `YPF`   — YPF S.A. (NYSE)
+- `GGAL`  — Grupo Financiero Galicia (NASDAQ)
+- `BMA`   — Banco Macro (NYSE)
+- `BBAR`  — BBVA Argentina (NYSE)
+- `PAM`   — Pampa Energia (NYSE)
+- `TEO`   — Telecom Argentina (NYSE)
+- `CEPU`  — Central Puerto (NYSE)
+- `LOMA`  — Loma Negra (NYSE)
+- `CRESY` — Cresud (NASDAQ)
+- `IRS`   — IRSA Inversiones (NYSE)
+- `SUPV`  — Grupo Supervielle (NYSE)
+- `MELI`  — MercadoLibre (NASDAQ)
+- `BIOX`  — Bioceres Crop Solutions (NASDAQ)
 
 ## Workflow
 
@@ -171,6 +159,51 @@ erDiagram
     dim_ticker ||--o{ fact_stock_prices : "ticker_id"
 ```
 
+## Pipeline Guarantees
+
+- **Idempotence:** re-running the pipeline for an already-loaded date range inserts 0 rows.
+- **Incrementality:** only dates strictly after `MAX(dim_date.date)` are fetched from the API
+  on each run; the last loaded date is never re-downloaded.
+- **Key stability:** `ticker_id` is assigned once based on the existing database mapping and
+  never reassigned, even if the ticker list changes between runs.
+- **Data quality:** after each load, OHLC consistency and non-negativity checks are run against
+  the full fact table; counts are returned in the `violations` key of the result.
+- **Atomicity:** all writes in a single run (dim_date, dim_ticker, fact_stock_prices) are
+  wrapped in a single transaction; any failure triggers a full rollback.
+
+## Installation
+
+```bash
+uv sync              # install core dependencies
+uv sync --extra dev  # include jupyter and dev tools
+```
+
+After `uv sync`, the `adrs-warehouse` CLI is available via:
+
+```bash
+uv run adrs-warehouse --help
+```
+
+## Usage
+
+### CLI
+
+Run the incremental ETL pipeline from the command line:
+
+```bash
+uv run adrs-warehouse                                 # default db path
+uv run adrs-warehouse --db-path /path/to/db.duckdb   # custom db path
+uv run adrs-warehouse --help                          # show all options
+```
+
+### Python API
+
+```python
+from adrs_warehouse.data.fetch import update_warehouse
+
+stats = update_warehouse("data/processed/db.duckdb")
+```
+
 ## Adding a New Database Provider
 
 The database layer uses an abstract `DatabaseBackend` interface, so alternative backends (MotherDuck, SQLite, Postgres, etc.) can be swapped in without changing any other code.
@@ -294,69 +327,6 @@ A successful run ends with:
 Update complete — dim_date: 5, dim_ticker: 0, fact_stock_prices: 65
 ```
 
-## Pipeline Guarantees
-
-- **Idempotence:** re-running the pipeline for an already-loaded date range inserts 0 rows.
-- **Incrementality:** only dates strictly after `MAX(dim_date.date)` are fetched from the API
-  on each run; the last loaded date is never re-downloaded.
-- **Key stability:** `ticker_id` is assigned once based on the existing database mapping and
-  never reassigned, even if the ticker list changes between runs.
-- **Data quality:** after each load, OHLC consistency and non-negativity checks are run against
-  the full fact table; counts are returned in the `violations` key of the result.
-- **Atomicity:** all writes in a single run (dim_date, dim_ticker, fact_stock_prices) are
-  wrapped in a single transaction; any failure triggers a full rollback.
-
-## Possible Problems
-- Yahoo Finance restricts the accesss to the python package, then the data shouod need to be accessed directly from the api
-- The long format used in transformation could break memory bounds if many tickers and/or time intervals are considered
-
-## Installation
-
-```bash
-uv sync              # install core dependencies
-uv sync --extra dev  # include jupyter and dev tools
-```
-
-After `uv sync`, the `adrs-warehouse` CLI is available via:
-
-```bash
-uv run adrs-warehouse --help
-```
-
-## Usage
-
-### CLI
-
-Run the incremental ETL pipeline from the command line:
-
-```bash
-uv run adrs-warehouse                                 # default db path
-uv run adrs-warehouse --db-path /path/to/db.duckdb   # custom db path
-uv run adrs-warehouse --help                          # show all options
-```
-
-### Python API
-
-```python
-from adrs_warehouse.data.fetch import download_adr_data, build_ticker_dimension
-from adrs_warehouse.data.transform import clean_data, normalize_prices_long
-from adrs_warehouse.database.operations import ADRDatabase
-
-# Download data
-data = download_adr_data()
-
-# Clean and transform
-cleaned = clean_data(data)
-long_format = normalize_prices_long(cleaned)
-
-# Store in database
-db = ADRDatabase("adr_data.db")
-db.create_table_from_dataframe(long_format, "stock_prices")
-
-# Query
-results = db.query("SELECT * FROM stock_prices WHERE ticker = 'MELI' LIMIT 10")
-```
-
 ## Update Functions
 
 The warehouse supports incremental updates so only new data since the last load is fetched.
@@ -459,3 +429,33 @@ tests/
 | `extended_multiindex_df` | Overlapping dates used to test incremental dedup logic. |
 | `sample_long_df` | Long-format output of `normalize_prices_long`. |
 | `db` | In-memory `ADRDatabase` with the star schema already created. |
+
+## Limitations
+
+- Yahoo Finance restricts access to the Python package periodically; in that case data may need to be fetched directly from the API.
+- The long-format transformation loads the full date range into memory; for very large ticker lists or long time windows this could exceed available RAM.
+
+## Roadmap
+
+Here's where the project stands and what's next:
+
+### Data pipeline
+- [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
+- [x] Implement incremental data updates (fetch only new data since last load)
+- [x] Automate daily updates with a scheduler (cron)
+- [x] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
+- [ ] Add function to include new tickers dynamically
+- [x] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
+- [ ] Add retry logic with exponential backoff for yfinance API failures
+
+### Code quality
+- [x] Replace `print()` calls with structured `logging` (log levels, file output)
+- [x] Remove unused imports (`pathlib.Path` in `fetch.py`)
+- [ ] Add error handling around API calls and database operations
+- [ ] Complete type hints on all public functions and replace plain `dict` metadata with `TypedDict`
+
+### Testing & CI
+- [x] Add GitHub Actions workflow to run pytest on every push
+- [x] Add edge-case tests: overlapping date ranges, sparse ticker data
+- [x] Add `pytest --cov` and enforce ≥ 80% coverage
+- [x] Add edge-case test: empty API response
