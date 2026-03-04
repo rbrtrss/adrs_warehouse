@@ -142,7 +142,12 @@ def add_tickers(
         )
 
         if raw.empty:
-            logger.info("No data returned from API. Skipping load.")
+            logger.warning(
+                "No data returned from API for ticker(s): %s — "
+                "they may be invalid or have no history since %s",
+                ", ".join(new_tickers),
+                start_date or START_DATE,
+            )
             return zero_result
 
         merged_metadata = {**TICKER_METADATA, **(metadata or {})}
@@ -151,6 +156,17 @@ def add_tickers(
         dim_ticker = transform.build_ticker_dimension(
             raw, metadata=merged_metadata, existing_id_map=existing_id_map
         )
+
+        no_data = dim_ticker[dim_ticker["first_trade_date"].isna()][
+            "ticker_symbol"
+        ].tolist()
+        if no_data:
+            logger.warning(
+                "No data returned for ticker(s): %s — skipping",
+                ", ".join(no_data),
+            )
+            dim_ticker = dim_ticker[dim_ticker["first_trade_date"].notna()]
+
         fact = transform.build_fact_table(raw, dim_date, dim_ticker)
 
         db.begin()

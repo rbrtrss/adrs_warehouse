@@ -1,4 +1,5 @@
 import datetime
+import logging
 from unittest.mock import patch
 
 import pandas as pd
@@ -439,6 +440,54 @@ class TestAddTickers:
         row = db.query("SELECT ticker_id FROM dim_ticker WHERE ticker_symbol = 'NEW'")
         db.close()
         assert row.iloc[0]["ticker_id"] == 3  # max(1,2) + 1
+
+    @patch("adrs_warehouse.data.fetch.yf")
+    def test_invalid_ticker_returns_zero_and_warns(self, mock_yf, tmp_path, caplog):
+        mock_yf.download.return_value = pd.DataFrame()
+        db_path = str(tmp_path / "test.duckdb")
+
+        with caplog.at_level(logging.WARNING, logger="adrs_warehouse.data.fetch"):
+            result = add_tickers(["BADTICKER"], db_path=db_path)
+
+        assert result == {
+            "dim_date": 0,
+            "dim_ticker": 0,
+            "fact_stock_prices": 0,
+            "violations": {
+                "null_required_fields": 0,
+                "ohlc_violations": 0,
+                "negative_prices": 0,
+                "negative_volume": 0,
+            },
+        }
+        assert "BADTICKER" in caplog.text
+
+    @patch("adrs_warehouse.data.fetch.yf")
+    def test_mixed_valid_invalid_tickers(
+        self, mock_yf, tmp_path, caplog, sample_multiindex_df
+    ):
+        # sample_multiindex_df has GGAL and YPF; NaN-out YPF to simulate invalid
+        df = sample_multiindex_df.copy()
+        for field in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]:
+            df[("YPF", field)] = float("nan")
+        mock_yf.download.return_value = df
+        db_path = str(tmp_path / "test.duckdb")
+
+        with caplog.at_level(logging.WARNING, logger="adrs_warehouse.data.fetch"):
+            result = add_tickers(["GGAL", "YPF"], db_path=db_path)
+
+        # Valid ticker was loaded
+        assert result["dim_ticker"] == 1
+        assert result["fact_stock_prices"] > 0
+        # Invalid ticker warned about
+        assert "YPF" in caplog.text
+        # Invalid ticker NOT inserted into dim_ticker
+        db = create_database("duckdb", db_path=db_path)
+        db.create_star_schema()
+        id_map = db.get_ticker_id_map()
+        db.close()
+        assert "YPF" not in id_map
+        assert "GGAL" in id_map
 
     @patch("adrs_warehouse.data.fetch.download_adr_data")
     def test_update_warehouse_includes_added_ticker(
