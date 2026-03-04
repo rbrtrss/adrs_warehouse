@@ -41,25 +41,25 @@ The `update_warehouse` function orchestrates the full ETL pipeline: fetch from Y
 
 ```mermaid
 flowchart TD
-    Start([update_warehouse]) --> InitDB[Create ADRDatabase\nConnect to DuckDB]
-    InitDB --> Schema[create_star_schema\nDDL for dims + fact]
-    Schema --> CheckDate[get_last_loaded_date\nQuery MAX date from dim_date]
+    Start([update_warehouse]) --> InitDB[Create ADRDatabase<br>Connect to DuckDB]
+    InitDB --> Schema[create_star_schema<br>DDL for dims + fact]
+    Schema --> CheckDate[get_last_loaded_date<br>Query MAX date from dim_date]
 
-    CheckDate --> HasData{Last date\nexists?}
-    HasData -->|No| FullLoad[Full Load\nstart = 2018-01-01]
-    HasData -->|Yes| IncrLoad[Incremental Load\nstart = last_date]
+    CheckDate --> HasData{Last date<br>exists?}
+    HasData -->|No| FullLoad[Full Load<br>start = 2018-01-01]
+    HasData -->|Yes| IncrLoad[Incremental Load<br>start = last_date]
 
     FullLoad --> Fetch
     IncrLoad --> Fetch
 
-    Fetch[download_adr_data\nyfinance API call]
+    Fetch[download_adr_data<br>yfinance API call]
 
     subgraph Transform
         direction TB
-        T1[build_date_dimension\nExtract year, quarter, month,\nday_of_week, is_weekend, etc.]
-        T2[build_ticker_dimension\nEnrich with company name,\nexchange, sector, country]
-        T3[build_fact_table\nNormalize to long format,\nmap FK date_id + ticker_id]
-        T4[clean_fact_rows\nDrop null OHLC, invalid ranges,\nOHLC violations, duplicates]
+        T1[build_date_dimension<br>Extract year, quarter, month,<br>day_of_week, is_weekend, etc.]
+        T2[build_ticker_dimension<br>Enrich with company name,<br>exchange, sector, country]
+        T3[build_fact_table<br>Normalize to long format,<br>map FK date_id + ticker_id]
+        T4[clean_fact_rows<br>Drop null OHLC, invalid ranges,<br>OHLC violations, duplicates]
     end
 
     Fetch --> T1
@@ -71,15 +71,15 @@ flowchart TD
     subgraph Load ["Load — atomic transaction"]
         direction TB
         LB[db.begin]
-        L1[append_dimension\ndim_date\nINSERT OR IGNORE]
-        L2[append_dimension\ndim_ticker\nINSERT OR IGNORE]
-        L3[append_fact\nfact_stock_prices\nINSERT OR IGNORE]
-        L4[update_ticker_dimension\nRefresh last_trade_date]
+        L1[append_dimension<br>dim_date<br>INSERT OR IGNORE]
+        L2[append_dimension<br>dim_ticker<br>INSERT OR IGNORE]
+        L3[append_fact<br>fact_stock_prices<br>INSERT OR IGNORE]
+        L4[update_ticker_dimension<br>Refresh last_trade_date]
         LC[db.commit]
-        LR[db.rollback\nre-raise]
+        LR[db.rollback<br>re-raise]
     end
 
-    L5[validate_fact_table\nSQL checks: null OHLC,\nOHLC violations, neg prices]
+    L5[validate_fact_table<br>SQL checks: null OHLC,<br>OHLC violations, neg prices]
 
     T4 --> LB
     LB --> L1 --> L2 --> L3 --> L4 --> LC
@@ -87,7 +87,7 @@ flowchart TD
     LC --> L5
     LR --> Close
 
-    L5 --> Summary[Return row counts + violations\ndim_date, dim_ticker,\nfact_stock_prices, violations]
+    L5 --> Summary[Return row counts + violations<br>dim_date, dim_ticker,<br>fact_stock_prices, violations]
     Summary --> Close([Close connection — always via finally])
 
     classDef startEnd fill:#E6E6FA,stroke:#333,stroke-width:2px,color:darkblue
