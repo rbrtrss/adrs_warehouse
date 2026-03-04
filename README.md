@@ -15,7 +15,7 @@
 - **Data validation** — OHLC consistency checks, null detection, and non-negativity constraints run at both the transform stage and post-load via SQL; violation counts are returned in every run's result dict.
 - **CI matrix** — GitHub Actions runs the full pytest suite on every push; coverage is enforced at ≥ 80%.
 - **Structured logging** — `logging` with rotating file handler replaces `print`; log level and output path are configurable.
-- **Cron automation** — a `[project.scripts]` CLI entry point (`adrs-warehouse`) integrates cleanly with cron for daily post-market updates.
+- **Cron automation** — `adrs-warehouse update` and `adrs-warehouse add-tickers` are registered as `[project.scripts]` CLI entry points; `update` integrates cleanly with cron for daily post-market runs.
 
 ## Tracked Tickers
 
@@ -191,9 +191,16 @@ uv run adrs-warehouse --help
 Run the incremental ETL pipeline from the command line:
 
 ```bash
-uv run adrs-warehouse                                 # default db path
-uv run adrs-warehouse --db-path /path/to/db.duckdb   # custom db path
-uv run adrs-warehouse --help                          # show all options
+# Incrementally update all tracked tickers
+uv run adrs-warehouse update
+uv run adrs-warehouse update --db-path /path/to/db.duckdb
+
+# Add one or more new tickers (full historical load)
+uv run adrs-warehouse add-tickers GLOB
+uv run adrs-warehouse add-tickers GLOB MELI --db-path /path/to/db.duckdb
+
+uv run adrs-warehouse --help          # top-level help
+uv run adrs-warehouse update --help   # subcommand help
 ```
 
 ### Python API
@@ -292,10 +299,10 @@ Replace `/path/to/project` with your actual project root (from Step 1):
 
 ```
 # Update ADR warehouse weekdays at 6 PM — after NYSE closes at 4 PM ET
-0 18 * * 1-5 /path/to/project/.venv/bin/adrs-warehouse --db-path /path/to/project/data/processed/db.duckdb >> /path/to/project/logs/cron.log 2>&1
+0 18 * * 1-5 /path/to/project/.venv/bin/adrs-warehouse update --db-path /path/to/project/data/processed/db.duckdb >> /path/to/project/logs/cron.log 2>&1
 ```
 
-> **PATH caveat:** Cron runs with a minimal `PATH` that does not include your venv. Always use the absolute path to the binary rather than a bare `adrs-warehouse`. Alternatively, set `PATH` at the top of the crontab:
+> **PATH caveat:** Cron runs with a minimal `PATH` that does not include your venv. Always use the absolute path to the binary rather than a bare `adrs-warehouse update`. Alternatively, set `PATH` at the top of the crontab:
 > ```
 > PATH=/path/to/project/.venv/bin:/usr/local/bin:/usr/bin:/bin
 > ```
@@ -351,6 +358,37 @@ stats = update_warehouse("data/processed/db.duckdb")
 #         "negative_volume": 0,
 #     }
 # }
+```
+
+### `add_tickers(tickers, db_path, metadata, start_date)`
+
+Performs a full historical load for one or more new ticker symbols and inserts them
+into the warehouse. Tickers already tracked in the database are silently skipped.
+After `add_tickers()` is called, subsequent `update_warehouse()` runs automatically
+include the new symbols in their incremental fetch.
+
+```python
+from adrs_warehouse.data.fetch import add_tickers
+
+# Add a single new ticker with full history from START_DATE
+stats = add_tickers(["GLOB"], "data/processed/db.duckdb")
+
+# Supply custom metadata (overrides TICKER_METADATA for these tickers)
+stats = add_tickers(
+    ["GLOB"],
+    metadata={"GLOB": {"company_name": "Globant S.A.", "exchange": "NYSE",
+                        "sector": "Technology", "country": "Luxembourg"}},
+)
+
+# stats -> {"dim_date": 0, "dim_ticker": 1, "fact_stock_prices": 1543,
+#            "violations": {...}}
+```
+
+The same operation is available directly from the command line:
+
+```bash
+uv run adrs-warehouse add-tickers GLOB
+uv run adrs-warehouse add-tickers GLOB MELI --db-path /path/to/db.duckdb
 ```
 
 ### Database-level helpers
@@ -444,7 +482,7 @@ Here's where the project stands and what's next:
 - [x] Implement incremental data updates (fetch only new data since last load)
 - [x] Automate daily updates with a scheduler (cron)
 - [x] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
-- [ ] Add function to include new tickers dynamically
+- [x] Add function to include new tickers dynamically
 - [x] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
 - [ ] Add retry logic with exponential backoff for yfinance API failures
 

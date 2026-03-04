@@ -1,10 +1,11 @@
 import datetime
+import logging
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
-from adrs_warehouse.data.fetch import update_warehouse
+from adrs_warehouse.data.fetch import add_tickers, update_warehouse
 from adrs_warehouse.data.transform import (
     build_date_dimension,
     build_fact_table,
@@ -365,3 +366,151 @@ class TestUpdateWarehouse:
         assert db2.query("SELECT COUNT(*) AS n FROM dim_date").iloc[0]["n"] == 0
         assert db2.query("SELECT COUNT(*) AS n FROM dim_ticker").iloc[0]["n"] == 0
         db2.close()
+
+
+class TestAddTickers:
+    """Tests for add_tickers() — full historical load for new symbols."""
+
+    def _new_ticker_df(self, dates, ticker="NEW"):
+        """Build a single-ticker yfinance-like MultiIndex DataFrame."""
+        import numpy as np
+
+        fields = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+        columns = pd.MultiIndex.from_product(
+            [[ticker], fields], names=["Ticker", "Price"]
+        )
+        n = len(dates)
+        data = np.tile([10.0, 11.0, 9.5, 10.5, 10.4, 1000], (n, 1))
+        df = pd.DataFrame(data, index=pd.to_datetime(dates), columns=columns)
+        df.index.name = "Date"
+        return df
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_new_tickers_perform_full_load(self, mock_download, tmp_path):
+        new_df = self._new_ticker_df(["2024-01-02", "2024-01-03", "2024-01-04"])
+        mock_download.return_value = new_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        result = add_tickers(["NEW"], db_path=db_path)
+
+        assert result["dim_date"] == 3
+        assert result["dim_ticker"] == 1
+        assert result["fact_stock_prices"] == 3
+        assert isinstance(result["violations"], dict)
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_already_tracked_ticker_skips(
+        self, mock_download, sample_multiindex_df, tmp_path
+    ):
+        mock_download.return_value = sample_multiindex_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        # Seed the DB with GGAL and YPF
+        update_warehouse(db_path=db_path)
+
+        # Reset mock so we can detect if it's called again
+        mock_download.reset_mock()
+        mock_download.return_value = sample_multiindex_df
+
+        result = add_tickers(["GGAL"], db_path=db_path)
+
+        assert result["dim_date"] == 0
+        assert result["dim_ticker"] == 0
+        assert result["fact_stock_prices"] == 0
+        # download should not have been called for an already-tracked ticker
+        mock_download.assert_not_called()
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_new_ticker_id_assigned_above_max(
+        self, mock_download, sample_multiindex_df, tmp_path
+    ):
+        mock_download.return_value = sample_multiindex_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        # Seed GGAL (id=1) and YPF (id=2)
+        update_warehouse(db_path=db_path)
+
+        new_df = self._new_ticker_df(["2024-01-02", "2024-01-03"])
+        mock_download.return_value = new_df
+
+        add_tickers(["NEW"], db_path=db_path)
+
+        db = create_database("duckdb", db_path=db_path)
+        db.create_star_schema()
+        row = db.query("SELECT ticker_id FROM dim_ticker WHERE ticker_symbol = 'NEW'")
+        db.close()
+        assert row.iloc[0]["ticker_id"] == 3  # max(1,2) + 1
+
+    @patch("adrs_warehouse.data.fetch.yf")
+    def test_invalid_ticker_returns_zero_and_warns(self, mock_yf, tmp_path, caplog):
+        mock_yf.download.return_value = pd.DataFrame()
+        db_path = str(tmp_path / "test.duckdb")
+
+        with caplog.at_level(logging.WARNING, logger="adrs_warehouse.data.fetch"):
+            result = add_tickers(["BADTICKER"], db_path=db_path)
+
+        assert result == {
+            "dim_date": 0,
+            "dim_ticker": 0,
+            "fact_stock_prices": 0,
+            "violations": {
+                "null_required_fields": 0,
+                "ohlc_violations": 0,
+                "negative_prices": 0,
+                "negative_volume": 0,
+            },
+        }
+        assert "BADTICKER" in caplog.text
+
+    @patch("adrs_warehouse.data.fetch.yf")
+    def test_mixed_valid_invalid_tickers(
+        self, mock_yf, tmp_path, caplog, sample_multiindex_df
+    ):
+        # sample_multiindex_df has GGAL and YPF; NaN-out YPF to simulate invalid
+        df = sample_multiindex_df.copy()
+        for field in ["Open", "High", "Low", "Close", "Adj Close", "Volume"]:
+            df[("YPF", field)] = float("nan")
+        mock_yf.download.return_value = df
+        db_path = str(tmp_path / "test.duckdb")
+
+        with caplog.at_level(logging.WARNING, logger="adrs_warehouse.data.fetch"):
+            result = add_tickers(["GGAL", "YPF"], db_path=db_path)
+
+        # Valid ticker was loaded
+        assert result["dim_ticker"] == 1
+        assert result["fact_stock_prices"] > 0
+        # Invalid ticker warned about
+        assert "YPF" in caplog.text
+        # Invalid ticker NOT inserted into dim_ticker
+        db = create_database("duckdb", db_path=db_path)
+        db.create_star_schema()
+        id_map = db.get_ticker_id_map()
+        db.close()
+        assert "YPF" not in id_map
+        assert "GGAL" in id_map
+
+    @patch("adrs_warehouse.data.fetch.download_adr_data")
+    def test_update_warehouse_includes_added_ticker(
+        self, mock_download, sample_multiindex_df, tmp_path
+    ):
+        from adrs_warehouse.config import AR_ADRS
+
+        mock_download.return_value = sample_multiindex_df
+        db_path = str(tmp_path / "test.duckdb")
+
+        # Seed AR_ADRS tickers
+        update_warehouse(db_path=db_path)
+
+        # Add NEW ticker
+        new_df = self._new_ticker_df(["2024-01-02", "2024-01-03"])
+        mock_download.return_value = new_df
+        add_tickers(["NEW"], db_path=db_path)
+
+        # Subsequent update_warehouse should include NEW + all AR_ADRS
+        mock_download.return_value = sample_multiindex_df
+        update_warehouse(db_path=db_path)
+
+        _, kwargs = mock_download.call_args
+        fetched_tickers = kwargs["tickers"]
+        assert "NEW" in fetched_tickers
+        assert all(t in fetched_tickers for t in AR_ADRS)

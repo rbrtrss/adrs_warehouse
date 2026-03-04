@@ -5,7 +5,7 @@ from typing import Optional, TypedDict
 import pandas as pd
 import yfinance as yf
 
-from ..config import AR_ADRS, START_DATE
+from ..config import AR_ADRS, START_DATE, TICKER_METADATA
 from ..database.base import DatabaseBackend
 from ..database.operations import create_database
 from ..utils.logging import setup_logging
@@ -83,6 +83,125 @@ def build_ticker_dimension(df: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def add_tickers(
+    tickers: list[str],
+    db_path: str = "data/processed/db.duckdb",
+    db: Optional[DatabaseBackend] = None,
+    metadata: Optional[dict[str, dict]] = None,
+    start_date: Optional[str] = None,
+) -> WarehouseUpdateResult:
+    """
+    Perform a full historical load for new ticker symbols and insert them into the
+    warehouse.
+
+    Tickers already tracked in the database are skipped. Subsequent calls to
+    update_warehouse() will automatically include any tickers added here.
+
+    Args:
+        tickers: Ticker symbols to add.
+        db_path: Path to the DuckDB database file.
+        db: Optional database backend instance. If None, a DuckDB backend is created.
+        metadata: Optional metadata dict keyed by ticker. Merged with TICKER_METADATA
+            (caller wins); falls back to "Unknown" for missing fields.
+        start_date: Start date for the historical load. Defaults to START_DATE.
+
+    Returns:
+        Dictionary with the number of rows added per table.
+    """
+    setup_logging()
+
+    if db is None:
+        db = create_database("duckdb", db_path=db_path)
+    db.create_star_schema()
+
+    zero_result = WarehouseUpdateResult(
+        dim_date=0,
+        dim_ticker=0,
+        fact_stock_prices=0,
+        violations={
+            "null_required_fields": 0,
+            "ohlc_violations": 0,
+            "negative_prices": 0,
+            "negative_volume": 0,
+        },
+    )
+
+    try:
+        existing_id_map = db.get_ticker_id_map()
+        new_tickers = [t for t in tickers if t not in existing_id_map]
+
+        for ticker in tickers:
+            if ticker not in new_tickers:
+                logger.warning("Ticker %s is already tracked — skipping", ticker)
+
+        if not new_tickers:
+            return zero_result
+
+        raw = download_adr_data(
+            tickers=new_tickers, start_date=start_date or START_DATE
+        )
+
+        if raw.empty:
+            logger.warning(
+                "No data returned from API for ticker(s): %s — "
+                "they may be invalid or have no history since %s",
+                ", ".join(new_tickers),
+                start_date or START_DATE,
+            )
+            return zero_result
+
+        merged_metadata = {**TICKER_METADATA, **(metadata or {})}
+
+        dim_date = transform.build_date_dimension(raw)
+        dim_ticker = transform.build_ticker_dimension(
+            raw, metadata=merged_metadata, existing_id_map=existing_id_map
+        )
+
+        no_data = dim_ticker[dim_ticker["first_trade_date"].isna()][
+            "ticker_symbol"
+        ].tolist()
+        if no_data:
+            logger.warning(
+                "No data returned for ticker(s): %s — skipping",
+                ", ".join(no_data),
+            )
+            dim_ticker = dim_ticker[dim_ticker["first_trade_date"].notna()]
+
+        fact = transform.build_fact_table(raw, dim_date, dim_ticker)
+
+        db.begin()
+        try:
+            date_count = db.append_dimension(dim_date, "dim_date")
+            ticker_count = db.append_dimension(dim_ticker, "dim_ticker")
+            fact_count = db.append_fact(fact)
+            db.update_ticker_dimension(dim_ticker)
+        except Exception:
+            db.rollback()
+            raise
+        else:
+            db.commit()
+
+        violations = db.validate_fact_table()
+
+        summary = WarehouseUpdateResult(
+            dim_date=date_count,
+            dim_ticker=ticker_count,
+            fact_stock_prices=fact_count,
+            violations=violations,
+        )
+
+        logger.info(
+            "Rows added: dim_date=%d, dim_ticker=%d, fact_stock_prices=%d",
+            date_count,
+            ticker_count,
+            fact_count,
+        )
+
+        return summary
+    finally:
+        db.close()
+
+
 def update_warehouse(
     db_path: str = "data/processed/db.duckdb",
     db: Optional[DatabaseBackend] = None,
@@ -118,7 +237,9 @@ def update_warehouse(
             start = str(last_date + timedelta(days=1))
             logger.info("Last loaded date: %s. Fetching from %s", last_date, start)
 
-        raw = download_adr_data(start_date=start)
+        existing_tickers = set(db.get_ticker_id_map().keys())
+        all_tickers = sorted(set(AR_ADRS) | existing_tickers)
+        raw = download_adr_data(tickers=all_tickers, start_date=start)
 
         if raw.empty:
             logger.info("No data returned from API. Skipping load.")
