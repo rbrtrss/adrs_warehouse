@@ -15,6 +15,7 @@
 - **Data validation** — OHLC consistency checks, null detection, and non-negativity constraints run at both the transform stage and post-load via SQL; violation counts are returned in every run's result dict.
 - **CI matrix** — GitHub Actions runs the full pytest suite on every push; coverage is enforced at ≥ 80%.
 - **Structured logging** — `logging` with rotating file handler replaces `print`; log level and output path are configurable.
+- **NYSE close-aware fetching** — `update_warehouse()` caps the fetch `end_date` to the last NYSE market close (4 PM ET, rolled back to Friday on weekends), preventing intraday incomplete OHLC rows from entering the warehouse.
 - **Cron automation** — `adrs-warehouse update` and `adrs-warehouse add-tickers` are registered as `[project.scripts]` CLI entry points; `update` integrates cleanly with cron for daily post-market runs.
 
 ## Tracked Tickers
@@ -360,10 +361,15 @@ stats = update_warehouse("data/processed/db.duckdb")
 # }
 ```
 
+On each run, the fetch end date is automatically capped to the last NYSE market close (via `get_last_closed_date()`), so intraday data is never written to the warehouse.
+
 ### `add_tickers(tickers, db_path, metadata, start_date)`
 
 Performs a full historical load for one or more new ticker symbols and inserts them
 into the warehouse. Tickers already tracked in the database are silently skipped.
+Tickers with no data returned from the API (invalid symbols or no history since
+`start_date`) are logged at WARNING level and skipped — they are not inserted into
+`dim_ticker` and will not be picked up by future `update_warehouse()` runs.
 After `add_tickers()` is called, subsequent `update_warehouse()` runs automatically
 include the new symbols in their incremental fetch.
 
@@ -398,6 +404,7 @@ The `ADRDatabase` class exposes the lower-level methods used by `update_warehous
 | Method | Description |
 |---|---|
 | `get_last_loaded_date()` | Returns the most recent date in `dim_date`, or `None` if the table is empty. |
+| `get_last_closed_date()` | Returns today's date if the current wall-clock time (America/New_York) is at or after 16:00 ET, otherwise returns yesterday. Saturdays and Sundays roll back to Friday. Market holidays are not handled explicitly — yfinance simply returns no data for those dates, which is treated as expected behaviour. |
 | `begin()` | Opens an explicit transaction. Called before the four load writes. |
 | `commit()` | Commits the current transaction on success. |
 | `rollback()` | Rolls back the current transaction on any write failure, leaving the DB unchanged. |
