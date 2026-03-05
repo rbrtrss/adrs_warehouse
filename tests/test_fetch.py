@@ -1,9 +1,8 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import pytest
 
 from adrs_warehouse.data.fetch import (
     build_ticker_dimension,
@@ -15,7 +14,9 @@ from adrs_warehouse.data.fetch import (
 
 class TestGetLastClosedDate:
     def _make_et(self, year, month, day, hour, minute=0):
-        return datetime(year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York"))
+        return datetime(
+            year, month, day, hour, minute, tzinfo=ZoneInfo("America/New_York")
+        )
 
     @patch("adrs_warehouse.data.fetch.datetime")
     def test_before_close_on_weekday_returns_yesterday(self, mock_dt):
@@ -81,7 +82,9 @@ class TestDownloadAdrData:
     def test_passes_end_date_to_yf_download(self, mock_yf):
         mock_yf.download.return_value = pd.DataFrame()
 
-        download_adr_data(tickers=["YPF"], start_date="2026-01-01", end_date="2026-03-06")
+        download_adr_data(
+            tickers=["YPF"], start_date="2026-01-01", end_date="2026-03-06"
+        )
 
         call_kwargs = mock_yf.download.call_args
         assert call_kwargs[1]["end"] == "2026-03-06"
@@ -130,7 +133,9 @@ class TestUpdateWarehouseEndDateCapping:
     @patch("adrs_warehouse.data.fetch.create_database")
     @patch("adrs_warehouse.data.fetch.get_last_closed_date")
     @patch("adrs_warehouse.data.fetch.yf")
-    def test_passes_capped_end_date_to_download(self, mock_yf, mock_last_closed, mock_create_db):
+    def test_passes_capped_end_date_to_download(
+        self, mock_yf, mock_last_closed, mock_create_db
+    ):
         mock_last_closed.return_value = date(2026, 3, 5)
 
         mock_db = MagicMock()

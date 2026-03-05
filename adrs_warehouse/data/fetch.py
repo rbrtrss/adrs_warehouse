@@ -23,7 +23,10 @@ def get_last_closed_date() -> date:
     """
     et_now = datetime.now(ZoneInfo("America/New_York"))
     market_close = et_now.replace(hour=16, minute=0, second=0, microsecond=0)
-    candidate = et_now.date() if et_now >= market_close else et_now.date() - timedelta(days=1)
+    if et_now >= market_close:
+        candidate = et_now.date()
+    else:
+        candidate = et_now.date() - timedelta(days=1)
     # Roll back over weekends to Friday
     while candidate.weekday() >= 5:  # 5=Sat, 6=Sun
         candidate -= timedelta(days=1)
@@ -49,7 +52,7 @@ def download_adr_data(
     Args:
         tickers: List of ticker symbols. Defaults to AR_ADRS from config.
         start_date: Start date for data download. Defaults to START_DATE.
-        end_date: Exclusive end date for data download. Defaults to None (yfinance uses today).
+        end_date: Exclusive end date for data download. None means yfinance uses today.
         group_by: How to group the data ('ticker' or 'column').
 
     Returns:
@@ -257,8 +260,11 @@ def update_warehouse(
 
         existing_tickers = set(db.get_ticker_id_map().keys())
         all_tickers = sorted(set(AR_ADRS) | existing_tickers)
-        end_date = str(get_last_closed_date() + timedelta(days=1))  # yfinance end is exclusive
-        raw = download_adr_data(tickers=all_tickers, start_date=start, end_date=end_date)
+        # yfinance end is exclusive
+        end_date = str(get_last_closed_date() + timedelta(days=1))
+        raw = download_adr_data(
+            tickers=all_tickers, start_date=start, end_date=end_date
+        )
 
         if raw.empty:
             logger.info("No data returned from API. Skipping load.")
