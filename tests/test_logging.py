@@ -46,4 +46,6 @@ class TestSetupLogging:
     def test_creates_log_directory(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         setup_logging()
-        assert (tmp_path / "logs").is_dir()
+        import os, adrs_warehouse.utils.logging as m
+        expected = os.path.abspath(os.path.join(os.path.dirname(m.__file__), "..", "..", "logs"))
+        assert os.path.isdir(expected)

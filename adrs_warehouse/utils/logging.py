@@ -18,14 +18,16 @@ def setup_logging(level: int = logging.INFO) -> None:
     """
     logger = logging.getLogger("adrs_warehouse")
 
-    # Avoid adding duplicate handlers on repeated calls.
-    if logger.handlers:
+    # Avoid adding duplicate handlers on repeated calls (ignore the NullHandler
+    # added by the package __init__ for library-safe defaults).
+    if any(not isinstance(h, logging.NullHandler) for h in logger.handlers):
         return
 
     logger.setLevel(logging.DEBUG)
 
     # --- File handler ---
-    log_dir = "logs"
+    log_dir = os.path.join(os.path.dirname(__file__), "..", "..", "logs")
+    log_dir = os.path.abspath(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
     file_handler = RotatingFileHandler(
