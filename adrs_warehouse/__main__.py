@@ -5,14 +5,16 @@ from adrs_warehouse.data.fetch import add_tickers, update_warehouse
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        prog="adrs-warehouse",
-        description="Manage the ADR data warehouse.",
-    )
-    parser.add_argument(
+    db_path_parent = argparse.ArgumentParser(add_help=False)
+    db_path_parent.add_argument(
         "--db-path",
         default="data/processed/db.duckdb",
         help="Path to the DuckDB database file (default: data/processed/db.duckdb)",
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="adrs-warehouse",
+        description="Manage the ADR data warehouse.",
     )
 
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -21,12 +23,14 @@ def main() -> None:
     # --- update subcommand ---
     subparsers.add_parser(
         "update",
+        parents=[db_path_parent],
         help="Incrementally fetch and load new price data for all tracked tickers.",
     )
 
     # --- add-tickers subcommand ---
     p_add = subparsers.add_parser(
         "add-tickers",
+        parents=[db_path_parent],
         help="Perform a full historical load for one or more new ticker symbols.",
     )
     p_add.add_argument(
