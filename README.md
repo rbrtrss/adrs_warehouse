@@ -1,10 +1,49 @@
 # adrs_warehouse
 
+![Python](https://img.shields.io/badge/python-3.9+-blue)
+![DuckDB](https://img.shields.io/badge/database-DuckDB-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
 ![CI](https://github.com/rbrtrss/adrs_warehouse/actions/workflows/ci.yml/badge.svg)
 
 `adrs_warehouse` is a production-style data warehouse for the 13 US-listed Argentine ADRs (American Depositary Receipts). It fetches daily OHLC data from Yahoo Finance, transforms it into a star schema, and loads it incrementally into an embedded DuckDB database — with atomic transactions, data validation, and a scheduled CLI entry point.
 
 **Stack:** Python 3.9+ · DuckDB · pandas · yfinance · pytest · GitHub Actions · uv
+
+## Project Structure
+
+```
+adrs_warehouse/
+├── adrs_warehouse/          # main package
+│   ├── __main__.py          # CLI entry point (adrs-warehouse update / add-tickers)
+│   ├── config.py            # ticker list and metadata constants
+│   ├── data/
+│   │   ├── fetch.py         # update_warehouse(), add_tickers(), NYSE close-aware fetching
+│   │   └── transform.py     # build_date_dimension(), build_ticker_dimension(), build_fact_table(), clean_fact_rows()
+│   ├── database/
+│   │   ├── base.py          # abstract DatabaseBackend interface
+│   │   ├── operations.py    # DuckDBDatabase implementation + create_database() factory
+│   │   └── schema.py        # DDL for dim_date, dim_ticker, fact_stock_prices
+│   └── utils/
+│       ├── helpers.py       # shared utilities (excluded from coverage)
+│       └── logging.py       # setup_logging() — rotating file handler
+├── tests/
+│   ├── conftest.py          # shared fixtures (sample DataFrames, in-memory DB)
+│   ├── test_fetch.py        # download_adr_data, add_tickers (mocked yfinance)
+│   ├── test_transform.py    # dimension & fact builders, clean_fact_rows
+│   ├── test_database.py     # schema creation, incremental loads, update_warehouse integration
+│   ├── test_incremental.py  # regression tests for incremental ETL runs
+│   └── test_logging.py      # setup_logging: handler wiring, idempotence
+├── data/
+│   └── processed/
+│       └── db.duckdb        # embedded DuckDB database (git-ignored)
+├── diagrams/
+│   ├── er_diagram.mmd       # Mermaid ER diagram source
+│   └── workflow.mmd         # Mermaid ETL workflow source
+├── logs/                    # rotating log output (git-ignored)
+├── .github/workflows/
+│   └── ci.yml               # GitHub Actions CI (pytest + coverage gate)
+└── pyproject.toml           # dependencies, CLI scripts, tool config (ruff, pytest, coverage)
+```
 
 ## Key Engineering Highlights
 
