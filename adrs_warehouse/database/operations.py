@@ -244,4 +244,7 @@ def create_database(provider: str = "duckdb", **kwargs) -> DatabaseBackend:
     logger.info("Creating database backend: %s", provider)
     if provider == "duckdb":
         return DuckDBDatabase(**kwargs)
+    if provider == "motherduck":
+        from .motherduck import MotherDuckDatabase
+        return MotherDuckDatabase(**kwargs)
     raise ValueError(f"Unknown database provider: {provider!r}")
