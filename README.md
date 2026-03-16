@@ -7,7 +7,7 @@
 
 `adrs_warehouse` is a production-style data warehouse for the 13 US-listed Argentine ADRs (American Depositary Receipts). It fetches daily OHLC data from Yahoo Finance, transforms it into a star schema, and loads it incrementally into an embedded DuckDB database — with atomic transactions, data validation, and a scheduled CLI entry point.
 
-**Stack:** Python 3.9+ · DuckDB · pandas · yfinance · pytest · GitHub Actions · uv
+**Stack:** Python 3.9+ · DuckDB · MotherDuck · pandas · yfinance · pytest · GitHub Actions · uv · AWS Lambda · EventBridge Scheduler · CDK
 
 ## Project Structure
 
@@ -21,7 +21,8 @@ adrs_warehouse/
 │   │   └── transform.py     # build_date_dimension(), build_ticker_dimension(), build_fact_table(), clean_fact_rows()
 │   ├── database/
 │   │   ├── base.py          # abstract DatabaseBackend interface
-│   │   ├── operations.py    # DuckDBDatabase implementation + create_database() factory
+│   │   ├── operations.py    # DuckDBDatabase + create_database() factory
+│   │   ├── motherduck.py    # MotherDuckDatabase (md: connection, cloud)
 │   │   └── schema.py        # DDL for dim_date, dim_ticker, fact_stock_prices
 │   └── utils/
 │       ├── helpers.py       # shared utilities (excluded from coverage)
@@ -42,6 +43,17 @@ adrs_warehouse/
 ├── logs/                    # rotating log output (git-ignored)
 ├── .github/workflows/
 │   └── ci.yml               # GitHub Actions CI (pytest + coverage gate)
+├── infra/
+│   ├── lambda/
+│   │   ├── lambda_handler.py    # Lambda entry point
+│   │   └── requirements.txt     # Lambda dependencies
+│   ├── cdk/
+│   │   ├── app.py               # CDK app entry point
+│   │   ├── requirements.txt     # CDK dependencies
+│   │   └── stacks/
+│   │       └── adrs_stack.py    # Lambda + Scheduler + Alarm + SNS stack
+│   └── scripts/
+│       └── migrate_to_motherduck.py  # one-time local→cloud data migration
 └── pyproject.toml           # dependencies, CLI scripts, tool config (ruff, pytest, coverage)
 ```
 
@@ -55,7 +67,8 @@ adrs_warehouse/
 - **CI matrix** — GitHub Actions runs the full pytest suite on every push; coverage is enforced at ≥ 80%.
 - **Structured logging** — `logging` with rotating file handler replaces `print`; log level and output path are configurable.
 - **NYSE close-aware fetching** — `update_warehouse()` caps the fetch `end_date` to the last NYSE market close (4 PM ET, rolled back to Friday on weekends), preventing intraday incomplete OHLC rows from entering the warehouse.
-- **Cron automation** — `adrs-warehouse update` and `adrs-warehouse add-tickers` are registered as `[project.scripts]` CLI entry points; `update` integrates cleanly with cron for daily post-market runs.
+- **Cloud scheduling** — production runs on AWS Lambda (Python 3.12, 512 MB, 5-min timeout) triggered by EventBridge Scheduler at `cron(0 23 ? * MON-FRI *)` (weekdays 23:00 UTC, safely after the 4 PM NYSE close). `reserved_concurrent_executions=1` prevents overlapping runs. CloudWatch Alarm + SNS sends email on any Lambda error. The entire stack is provisioned by a CDK Python app in `infra/cdk/`.
+- **CLI scheduling** — `adrs-warehouse update` and `adrs-warehouse add-tickers` are registered as `[project.scripts]` CLI entry points; `update` also integrates with local cron for development/testing (superseded by EventBridge Scheduler in production).
 
 ## Tracked Tickers
 
@@ -257,18 +270,19 @@ The database layer uses an abstract `DatabaseBackend` interface, so alternative 
 
 ### Steps
 
-1. **Create the backend class** in `adrs_warehouse/database/<provider>.py`, inheriting from `DatabaseBackend` and implementing all abstract methods:
+1. **Create the backend class** in `adrs_warehouse/database/<provider>.py`. If the new backend uses DuckDB under the hood (like MotherDuck), inherit from `DuckDBDatabase` — all methods are inherited with no overrides needed. For a truly different database, inherit from `DatabaseBackend` and implement all abstract methods:
 
 ```python
 # adrs_warehouse/database/motherduck.py
-from .base import DatabaseBackend
+from .operations import DuckDBDatabase
 
-class MotherDuckDatabase(DatabaseBackend):
-    def __init__(self, connection_string: str):
-        import duckdb
+class MotherDuckDatabase(DuckDBDatabase):
+    def __init__(self, database: str = "adrs_warehouse", token: Optional[str] = None):
+        connection_string = f"md:{database}"
+        if token:
+            connection_string = f"md:{database}?motherduck_token={token}"
         self.conn = duckdb.connect(connection_string)
-
-    # implement all abstract methods ...
+    # All methods inherited from DuckDBDatabase — no overrides needed
 ```
 
 2. **Register it** in the `create_database` factory in `adrs_warehouse/database/operations.py`:
@@ -289,17 +303,50 @@ def create_database(provider: str = "duckdb", **kwargs) -> DatabaseBackend:
 from adrs_warehouse.database import create_database
 from adrs_warehouse.data.fetch import update_warehouse
 
-db = create_database("motherduck", connection_string="md:my_db")
+db = create_database("motherduck", database="adrs_warehouse")
 update_warehouse(db=db)
 ```
 
-## Automated Updates (Cron)
+## Automated Updates
 
-The `adrs-warehouse` CLI (registered via `[project.scripts]` in `pyproject.toml`) runs the incremental ETL pipeline and exits with a zero status code on success, making it a natural fit for cron scheduling. The logger writes structured output to `logs/adrs_warehouse.log` automatically.
+The `adrs-warehouse` CLI (registered via `[project.scripts]` in `pyproject.toml`) runs the incremental ETL pipeline and exits with a zero status code on success. The logger writes structured output to `logs/adrs_warehouse.log` automatically.
 
-### Setting Up a Cron Job
+### Production (AWS)
 
-The steps below work on Linux and macOS.
+In production, the pipeline runs serverlessly on AWS with no local machine required:
+
+```
+EventBridge Scheduler → Lambda (adrs-warehouse-update) → MotherDuck
+```
+
+**Schedule:** `cron(0 23 ? * MON-FRI *)` — weekdays at 23:00 UTC (6 PM EST / 7 PM EDT), safely after the 4 PM NYSE close.
+
+**Deploy the stack** (requires AWS credentials and Node.js for CDK):
+
+```bash
+cd infra/cdk
+pip install -r requirements.txt
+npx cdk deploy AdrsWarehouseStack
+```
+
+**Manually invoke the Lambda** (for testing):
+
+```bash
+aws lambda invoke --function-name adrs-warehouse-update --payload '{}' response.json
+cat response.json
+```
+
+**Check logs** in CloudWatch:
+
+```
+/aws/lambda/adrs-warehouse-update
+```
+
+A CloudWatch Alarm monitors for any Lambda errors and sends an SNS email notification.
+
+### Local / Development
+
+The steps below work on Linux and macOS for running the pipeline locally without AWS.
 
 **Step 1 — Find the installed command path**
 
@@ -526,10 +573,11 @@ Here's where the project stands and what's next:
 ### Data pipeline
 - [x] Implement a star schema for the database (dim_date, dim_ticker, fact_stock_prices)
 - [x] Implement incremental data updates (fetch only new data since last load)
-- [x] Automate daily updates with a scheduler (cron)
+- [x] Automate daily updates — migrated from local cron to AWS Lambda + EventBridge Scheduler
 - [x] Validate loaded data (price ranges, volume ≥ 0, high ≥ low) and log dropped rows
 - [x] Add function to include new tickers dynamically
 - [x] Wrap pipeline steps in a transaction so partial failures leave the DB consistent
+- [x] Deploy to AWS (MotherDuck + Lambda + EventBridge Scheduler + CDK)
 - [ ] Add retry logic with exponential backoff for yfinance API failures
 
 ### Code quality
